@@ -210,3 +210,29 @@ Stage Summary:
 - Runbook unchanged: Next :3000 (auto), engine :3003 via setsid nohup (full restart after edits — check /health ticking:true, persist:true), preview via Caddy :81. Engine kill by port PID (pkill -f misses `bun --hot index.ts`).
 - Remaining ideas (priority): screener CSV export; price-history export incl. news; alert presets (% moves) + browser notifications; i18n (EN/Bembe/Lozi); NextAuth watchlist sync; light theme; engine state versioning/migration guard if luse-stocks.json symbols change (restore skips unknown symbols safely today).
 - Known minor: screener sparkline falls back to 5-min-cached engine history when store buffers are empty; correlation/compare still use seeded daily history (illustrative).
+
+---
+Task ID: 9 (cron webDevReview round 5)
+Agent: main coordinator (scheduled review)
+Task: Status assessment, agent-browser QA, feature round (alert presets + desktop notifications, screener perf columns + CSV export, shortcuts help dialog) + styling polish.
+
+Work Log:
+- STATUS ASSESSMENT: all services healthy on start — engine :3003 ticking:true (persist:true, restoredSession:true), Next :3000 200, gateway :81 200, dev.log clean. Baseline agent-browser QA via :81 (desktop 1440 + mobile 390): live ticks/title/tape, 17 rows, tabs switch, zero console errors, no h-scroll. NO product bugs found this round → proceeded to feature work.
+- NEW FEATURE 1 — Alert quick presets + desktop notifications:
+  - AlertsTab: "QUICK PRESETS" chip row under the create form — +1/+5/+10% (emerald→ABOVE) and −1/−5/−10% (rose→BELOW) computed from the LIVE quote of the form's symbol (falls back to terminal selection), plus Day Hi / Day Lo chips (above dayHigh / below dayLow). Chips show "{SYM} @ K{live}" context label; disabled when no quote.
+  - use-alert-engine: notifyEnabled state persisted in localStorage (luse_desktop_notify); enableNotifications() requests Notification permission (graceful toasts on unsupported/denied), disableNotifications() turns it off; trigger engine now ALSO fires a system Notification (icon /icons/icon-192.png, tag luse-alert) alongside the toast when opted in.
+  - Prop wiring: TerminalApp owns toggleNotifications → passes notifyEnabled/onToggleNotifications to mobile AlertsTab AND desktop SideRail → AlertsTab (SideRailProps extended).
+  - Verified: +5% preset on ZANACO filled 9.91 from live K9.44, alert created → ACTIVE "Watching live ticks"; toggle click in headless browser (permission auto-denied) correctly stays Notify-off with destructive toast — real browsers will show the native prompt.
+- NEW FEATURE 2 — Screener multi-horizon performance + CSV export:
+  - GET /api/screener now returns chg1w/chg1m/chg3m (latest seeded close vs 5/21/63 trading days back; null when history short). 17 parallel Prisma findMany (take 64 closes, desc). shared/api-contract.md updated.
+  - ScreenerDialog: new sortable 1W (xl) / 1M (lg) / 3M (xl) columns with color-coded values + "—" for null; null-safe numeric sort (nulls always sink). Header gained a CSV export button → luse_screener_YYYYMMDD.csv (Symbol/Name/Sector/Price/PrevClose/Chg%/1W/1M/3M/Volume/Turnover/Cap/PE/DY/EPS/Beta/52W-High/52W-Low, live overlay applied). Verified download lands with 17 data rows + all columns; sort by 1M asc/desc works (CHIL top, ZFCO bottom).
+- NEW FEATURE 3 — Keyboard-shortcuts help dialog (new ShortcutsDialog.tsx): grouped list (Navigation / Trading / Analysis / General) in kbd-chip cards; opened by `?` key (use-keyboard-shortcuts gained onShortcutsHelp param) AND by clicking the footer kbd-hint row (Footer now takes onOpenShortcuts prop, hint row is a real button + new `?` help chip); `?` inside the dialog closes it (own window listener; the global hook deliberately ignores keys inside dialogs).
+- STYLING DETAIL: alert preset chips tightened (gap-0.5, px-1, "Day Hi/Day Lo") so all 8 chips fit ONE row in the 340px desktop rail (verified via rect comparison) and on mobile; screener CSV button styled to match dialog chrome (hover→orange); notify chip = rounded-full status pill (emerald when on, zinc when off).
+- Verification: bun run lint 0/0; bunx tsc --noEmit clean (src + engine tsconfig); agent-browser E2E via :81: screener columns/sort/CSV, presets fill+create, notify toggle denied-path toast, ? dialog open/close/footer-button, mobile 390 alerts tab clean with footer pushed naturally, zero console errors, engine ticking:true throughout.
+
+Stage Summary:
+- Alerts are now actionable at a glance (presets) and reach users outside the tab (desktop notifications); screener gained a real multi-horizon performance layer (1W/1M/3M) + data export; all shortcuts discoverable via `?`.
+- Files: src/app/api/screener/route.ts, src/lib/market/screener.ts, src/components/market/{ScreenerDialog,AlertsTab,SideRail,TerminalApp,Footer}.tsx, src/components/market/ShortcutsDialog.tsx (NEW), src/hooks/{use-alert-engine,use-keyboard-shortcuts}.ts, shared/api-contract.md.
+- Runbook unchanged: Next :3000 (auto), engine :3003 via setsid nohup (full restart after edits — check /health ticking:true), preview via Caddy :81 (socket.io needs XTransformPort). NOTE: Radix tabs need agent-browser click @ref (synthetic el.click() does not switch tabs).
+- Remaining ideas (priority): price-history export incl. news; i18n (EN/Bembe/Lozi); NextAuth watchlist sync; light theme; sound option for alert triggers; engine state versioning guard.
+- Known minor: Notification permission in headless QA is auto-denied (native prompt only in real browsers — by design); screener 1W/3M columns only visible ≥1280px viewport (xl) to keep the table compact; compare/correlation still use seeded daily history (illustrative).

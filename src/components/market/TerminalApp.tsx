@@ -40,6 +40,7 @@ import { AlertsTab } from './AlertsTab';
 import { NewsTab } from './NewsTab';
 import { ScreenerDialog } from './ScreenerDialog';
 import { CompareDialog } from './CompareDialog';
+import { ShortcutsDialog } from './ShortcutsDialog';
 import { TradeDialog, type TradeSide } from './TradeDialog';
 import { Footer } from './Footer';
 
@@ -80,6 +81,9 @@ export function TerminalApp() {
   // Market screener dialog
   const [screenerOpen, setScreenerOpen] = useState(false);
 
+  // Keyboard-shortcuts help dialog
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
   // Compare dialog
   const [compareOpen, setCompareOpen] = useState(false);
 
@@ -87,10 +91,16 @@ export function TerminalApp() {
     setTrade({ open: true, symbol, side });
   }, []);
 
-  // Global keyboard shortcuts: / search · ↑↓ navigate · B buy · S sell · P screener · C compare.
+  // Global keyboard shortcuts: / search · ↑↓ navigate · B buy · S sell · P screener · C compare · ? help.
   const openScreener = useCallback(() => setScreenerOpen(true), []);
   const openCompare = useCallback(() => setCompareOpen(true), []);
-  useKeyboardShortcuts(openTrade, openScreener, openCompare);
+  const openShortcuts = useCallback(() => setShortcutsOpen((v) => !v), []);
+  useKeyboardShortcuts(openTrade, openScreener, openCompare, openShortcuts);
+
+  const toggleNotifications = useCallback(() => {
+    if (alerts.notifyEnabled) alerts.disableNotifications();
+    else void alerts.enableNotifications();
+  }, [alerts]);
 
   const handleTradeSubmit = useCallback(
     async (args: { symbol: string; side: TradeSide; quantity: number }) =>
@@ -190,6 +200,8 @@ export function TerminalApp() {
                 alerts={alerts.alerts}
                 loading={alerts.loading}
                 error={alerts.error}
+                notifyEnabled={alerts.notifyEnabled}
+                onToggleNotifications={toggleNotifications}
                 onCreate={alerts.createAlert}
                 onDelete={alerts.removeAlert}
               />
@@ -209,6 +221,8 @@ export function TerminalApp() {
                 alerts={alerts.alerts}
                 alertsLoading={alerts.loading}
                 alertsError={alerts.error}
+                notifyEnabled={alerts.notifyEnabled}
+                onToggleNotifications={toggleNotifications}
                 onCreateAlert={alerts.createAlert}
                 onDeleteAlert={alerts.removeAlert}
                 portfolio={portfolio.portfolio}
@@ -221,7 +235,7 @@ export function TerminalApp() {
         )}
       </main>
 
-      <Footer />
+      <Footer onOpenShortcuts={openShortcuts} />
 
       <TradeDialog
         key={`${trade.open}-${trade.symbol}-${trade.side}`}
@@ -237,6 +251,7 @@ export function TerminalApp() {
 
       <ScreenerDialog open={screenerOpen} onOpenChange={setScreenerOpen} />
       <CompareDialog open={compareOpen} onOpenChange={setCompareOpen} />
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
   );
 }

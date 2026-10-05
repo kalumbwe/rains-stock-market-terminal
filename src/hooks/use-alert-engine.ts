@@ -13,10 +13,37 @@ import { useMarketStore } from '@/lib/market/store';
 import { fmtK } from '@/lib/market/format';
 import type { AlertCondition, PriceAlert } from '@/lib/market/types';
 
+const NOTIFY_PREF_KEY = 'luse_desktop_notify';
+
+/** Read the persisted desktop-notification preference. */
+function readNotifyPref(): boolean {
+  try {
+    return localStorage.getItem(NOTIFY_PREF_KEY) === 'on';
+  } catch {
+    return false;
+  }
+}
+
+/** Fire a browser notification when the user opted in and permission is granted. */
+function fireDesktopNotification(title: string, body: string) {
+  try {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    new Notification(title, { body, icon: '/icons/icon-192.png', tag: 'luse-alert' });
+  } catch {
+    /* notification channel is best-effort */
+  }
+}
+
 export interface AlertsState {
   alerts: PriceAlert[];
   loading: boolean;
   error: boolean;
+  /** User opted in to desktop (browser) notifications for alert triggers. */
+  notifyEnabled: boolean;
+  /** Ask for permission + persist the opt-in. Returns the resulting state. */
+  enableNotifications: () => Promise<boolean>;
+  /** Turn desktop notifications off. */
+  disableNotifications: () => void;
   refresh: () => Promise<void>;
   createAlert: (args: {
     symbol: string;
@@ -30,8 +57,57 @@ export function useAlertEngine(): AlertsState {
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [notifyEnabled, setNotifyEnabled] = useState(false);
   const alertsRef = useRef<PriceAlert[]>([]);
   const firedRef = useRef<Set<string>>(new Set());
+
+  // Hydrate the persisted notification preference once on mount.
+  useEffect(() => {
+    setNotifyEnabled(readNotifyPref());
+  }, []);
+
+  const enableNotifications = useCallback(async () => {
+    try {
+      if (typeof Notification === 'undefined') {
+        toast({
+          title: 'Notifications unsupported',
+          description: 'This browser has no desktop-notification API.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+      const perm =
+        Notification.permission === 'granted'
+          ? 'granted'
+          : await Notification.requestPermission();
+      if (perm !== 'granted') {
+        toast({
+          title: 'Permission not granted',
+          description: 'Enable notifications for this site in your browser settings.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+      localStorage.setItem(NOTIFY_PREF_KEY, 'on');
+      setNotifyEnabled(true);
+      toast({
+        title: '🔔 Desktop notifications on',
+        description: 'Alert triggers will now also pop a system notification.',
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const disableNotifications = useCallback(() => {
+    try {
+      localStorage.setItem(NOTIFY_PREF_KEY, 'off');
+    } catch {
+      /* ignore */
+    }
+    setNotifyEnabled(false);
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -73,10 +149,11 @@ export function useAlertEngine(): AlertsState {
       for (const a of pending) {
         firedRef.current.add(a.id);
         const dirWord = a.condition === 'ABOVE' ? 'crossed above' : 'crossed below';
-        toast({
-          title: `🔔 ${a.symbol} ${dirWord} ${fmtK(a.targetPrice)}`,
-          description: `Live price ${fmtK(useMarketStore.getState().stocks[a.symbol]?.price)} triggered your ${a.condition.toLowerCase()} alert.`,
-        });
+        const livePrice = useMarketStore.getState().stocks[a.symbol]?.price;
+        const title = `🔔 ${a.symbol} ${dirWord} ${fmtK(a.targetPrice)}`;
+        const body = `Live price ${fmtK(livePrice)} triggered your ${a.condition.toLowerCase()} alert.`;
+        toast({ title, description: body });
+        fireDesktopNotification(title, body);
         void fetch(`/api/alerts/${a.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -146,5 +223,15 @@ export function useAlertEngine(): AlertsState {
     [refresh]
   );
 
-  return { alerts, loading, error, refresh, createAlert, removeAlert };
+  return {
+    alerts,
+    loading,
+    error,
+    notifyEnabled,
+    enableNotifications,
+    disableNotifications,
+    refresh,
+    createAlert,
+    removeAlert,
+  };
 }

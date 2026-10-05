@@ -7,11 +7,13 @@ export const dynamic = 'force-dynamic'
 
 /**
  * GET /api/screener — one merged row per listed company for the market
- * screener table: live quote fields (engine) + fundamentals (Prisma).
+ * screener table: live quote fields (engine) + fundamentals + multi-horizon
+ * performance (1W/1M/3M, Prisma daily bars).
  *
  * 200 → { asOf, rows: [{ symbol, name, sector, price, prevClose, changePct,
  *          volume, valueTraded, marketCap, peRatio, dividendYield, eps, beta,
- *          sharesOutstanding, fiftyTwoWeekHigh, fiftyTwoWeekLow, sparkline }] }
+ *          sharesOutstanding, fiftyTwoWeekHigh, fiftyTwoWeekLow, sparkline,
+ *          chg1w, chg1m, chg3m }] }
  * 503 → { error: 'engine-unavailable' }
  */
 export async function GET() {
@@ -36,6 +38,28 @@ export async function GET() {
         _min: { low: true },
       }),
     ])
+
+    // Last 64 daily closes per symbol → 1W/1M/3M % change vs today's live price.
+    const symbols = snapshot.stocks.map((s) => s.symbol)
+    const closesArr = await Promise.all(
+      symbols.map((symbol) =>
+        db.dailyPrice.findMany({
+          where: { symbol },
+          orderBy: { date: 'desc' },
+          take: 64,
+          select: { close: true },
+        })
+      )
+    )
+    const closes = new Map(symbols.map((symbol, i) => [symbol, closesArr[i].map((c) => c.close)]))
+
+    const perf = (symbol: string, bars: number): number | null => {
+      const series = closes.get(symbol)
+      if (!series || series.length < bars + 1) return null
+      const base = series[bars] // `bars` trading days back (desc order)
+      if (!base || base <= 0) return null
+      return Math.round(((series[0] - base) / base) * 10000) / 100
+    }
 
     const fundamentals = new Map(stocks.map((s) => [s.symbol, s]))
     const range = new Map(
@@ -70,6 +94,10 @@ export async function GET() {
         fiftyTwoWeekLow: r?.low ?? round2(q.dayLow),
         /** Intraday 1m closes (≤60 pts) for the screener trend column. */
         sparkline: Array.isArray(q.history) ? q.history : [],
+        /** Multi-horizon performance (%) vs latest close — null when history is short. */
+        chg1w: perf(q.symbol, 5),
+        chg1m: perf(q.symbol, 21),
+        chg3m: perf(q.symbol, 63),
       }
     })
 

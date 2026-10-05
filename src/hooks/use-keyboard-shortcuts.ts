@@ -7,6 +7,7 @@
  *   B / S        open the trade dialog (buy / sell) for the selected symbol
  *   P            open the market screener
  *   C            open the compare dialog
+ *   ?            toggle the keyboard-shortcuts help dialog
  * Ignores keystrokes while typing in inputs, textareas, selects, popovers
  * or dialogs.
  */
@@ -17,7 +18,8 @@ import { useMarketStore } from '@/lib/market/store';
 export function useKeyboardShortcuts(
   onTrade: (symbol: string, side: 'BUY' | 'SELL') => void,
   onScreener?: () => void,
-  onCompare?: () => void
+  onCompare?: () => void,
+  onShortcutsHelp?: () => void
 ) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -58,10 +60,13 @@ export function useKeyboardShortcuts(
       } else if (e.key.toLowerCase() === 'c' && onCompare) {
         e.preventDefault();
         onCompare();
+      } else if (e.key === '?' && onShortcutsHelp) {
+        e.preventDefault();
+        onShortcutsHelp();
       }
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onTrade, onScreener, onCompare]);
+  }, [onTrade, onScreener, onCompare, onShortcutsHelp]);
 }

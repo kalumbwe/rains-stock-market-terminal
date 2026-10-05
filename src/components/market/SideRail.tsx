@@ -20,6 +20,9 @@ interface SideRailProps {
   alerts: PriceAlert[];
   alertsLoading: boolean;
   alertsError: boolean;
+  /** Desktop-notification opt-in state + toggle for the AlertsTab form. */
+  notifyEnabled: boolean;
+  onToggleNotifications: () => void;
   onCreateAlert: (args: {
     symbol: string;
     condition: AlertCondition;
@@ -104,6 +107,8 @@ export function SideRail(props: SideRailProps) {
             alerts={props.alerts}
             loading={props.alertsLoading}
             error={props.alertsError}
+            notifyEnabled={props.notifyEnabled}
+            onToggleNotifications={props.onToggleNotifications}
             onCreate={props.onCreateAlert}
             onDelete={props.onDeleteAlert}
           />

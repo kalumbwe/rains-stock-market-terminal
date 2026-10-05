@@ -11,6 +11,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Download,
   Inbox,
   Loader2,
   TableProperties,
@@ -35,6 +36,9 @@ type SortKey =
   | 'sector'
   | 'price'
   | 'changePct'
+  | 'chg1w'
+  | 'chg1m'
+  | 'chg3m'
   | 'volume'
   | 'valueTraded'
   | 'marketCap'
@@ -66,6 +70,9 @@ const COLUMNS: {
   { key: 'sector', label: 'Sector', align: 'left', width: 'hidden xl:table-cell' },
   { key: 'price', label: 'Price', align: 'right', numeric: true },
   { key: 'changePct', label: 'Chg %', align: 'right', numeric: true },
+  { key: 'chg1w', label: '1W', align: 'right', numeric: true, width: 'hidden xl:table-cell' },
+  { key: 'chg1m', label: '1M', align: 'right', numeric: true, width: 'hidden lg:table-cell' },
+  { key: 'chg3m', label: '3M', align: 'right', numeric: true, width: 'hidden xl:table-cell' },
   { key: 'volume', label: 'Volume', align: 'right', numeric: true, width: 'hidden lg:table-cell' },
   { key: 'valueTraded', label: 'Turnover', align: 'right', numeric: true, width: 'hidden lg:table-cell' },
   { key: 'marketCap', label: 'Mkt Cap', align: 'right', numeric: true, width: 'hidden md:table-cell' },
@@ -88,6 +95,75 @@ function SortIcon({ active, dir }: { active: boolean; dir: 'asc' | 'desc' }) {
   ) : (
     <ArrowDown className="h-3 w-3 text-orange-400" aria-hidden="true" />
   );
+}
+
+/** Download `rows` as a CSV file (client-side blob, no backend round-trip). */
+function downloadScreenerCsv(rows: DisplayRow[]) {
+  const esc = (v: string | number | null) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines: string[] = [];
+  lines.push('LuSE Pulse — Market Screener Export');
+  lines.push(`Generated,${new Date().toISOString()}`);
+  lines.push('');
+  lines.push(
+    [
+      'Symbol',
+      'Name',
+      'Sector',
+      'Price (K)',
+      'Prev Close (K)',
+      'Chg %',
+      '1W %',
+      '1M %',
+      '3M %',
+      'Volume',
+      'Turnover (K)',
+      'Mkt Cap (K)',
+      'P/E',
+      'Div Yield %',
+      'EPS',
+      'Beta',
+      '52W High (K)',
+      '52W Low (K)',
+    ].join(','),
+  );
+  for (const r of rows) {
+    lines.push(
+      [
+        esc(r.symbol),
+        esc(r.name),
+        esc(r.sector),
+        esc(r.live?.price ?? r.price),
+        esc(r.prevClose),
+        esc(r.live?.changePct ?? r.changePct),
+        esc(r.chg1w),
+        esc(r.chg1m),
+        esc(r.chg3m),
+        esc(r.live?.volume ?? r.volume),
+        esc(r.live?.valueTraded ?? r.valueTraded),
+        esc(r.live?.marketCap ?? r.marketCap),
+        esc(r.peRatio > 0 ? r.peRatio.toFixed(1) : ''),
+        esc(r.dividendYield > 0 ? r.dividendYield.toFixed(1) : ''),
+        esc(r.eps),
+        esc(r.beta),
+        esc(r.fiftyTwoWeekHigh),
+        esc(r.fiftyTwoWeekLow),
+      ].join(','),
+    );
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const d = new Date();
+  const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  a.href = url;
+  a.download = `luse_screener_${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export function ScreenerDialog({
@@ -168,7 +244,13 @@ export function ScreenerDialog({
       if (typeof av === 'string' && typeof bv === 'string') {
         return av.localeCompare(bv) * dir;
       }
-      return ((av as number) - (bv as number)) * dir;
+      // Null-safe numeric sort — perf columns can be null (short history).
+      const an = av === null || av === undefined ? null : (av as number);
+      const bn = bv === null || bv === undefined ? null : (bv as number);
+      if (an === null && bn === null) return 0;
+      if (an === null) return 1; // nulls always sink to the bottom
+      if (bn === null) return -1;
+      return (an - bn) * dir;
     });
     return list;
   }, [rows, stocks, query, sector, sortKey, sortDir]);
@@ -204,6 +286,16 @@ export function ScreenerDialog({
             <span className="ml-1 rounded bg-zinc-800 px-1.5 py-px font-mono text-[10px] font-medium uppercase tracking-wider text-zinc-400">
               {displayRows.length} counters
             </span>
+            <button
+              type="button"
+              onClick={() => downloadScreenerCsv(displayRows)}
+              disabled={displayRows.length === 0}
+              aria-label="Export screener as CSV"
+              className="ml-auto flex h-7 items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900 px-2.5 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 hover:text-orange-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 disabled:pointer-events-none disabled:opacity-40"
+            >
+              <Download className="h-3 w-3" aria-hidden="true" />
+              CSV
+            </button>
           </DialogTitle>
           <DialogDescription className="sr-only">
             Sortable table of all LuSE listed companies with live prices and fundamentals, plus a correlation matrix
@@ -363,6 +455,15 @@ export function ScreenerDialog({
                       </td>
                       <td className={`px-3 py-2 text-right font-mono font-semibold tabular-nums ${changeColor(pct)}`}>
                         {fmtPct(pct)}
+                      </td>
+                      <td className={`hidden px-3 py-2 text-right font-mono tabular-nums xl:table-cell ${r.chg1w === null ? 'text-zinc-600' : changeColor(r.chg1w)}`}>
+                        {r.chg1w === null ? '—' : fmtPct(r.chg1w)}
+                      </td>
+                      <td className={`hidden px-3 py-2 text-right font-mono tabular-nums lg:table-cell ${r.chg1m === null ? 'text-zinc-600' : changeColor(r.chg1m)}`}>
+                        {r.chg1m === null ? '—' : fmtPct(r.chg1m)}
+                      </td>
+                      <td className={`hidden px-3 py-2 text-right font-mono tabular-nums xl:table-cell ${r.chg3m === null ? 'text-zinc-600' : changeColor(r.chg3m)}`}>
+                        {r.chg3m === null ? '—' : fmtPct(r.chg3m)}
                       </td>
                       <td className="hidden px-3 py-2 text-right font-mono tabular-nums text-zinc-300 lg:table-cell">
                         {fmtNum(vol)}

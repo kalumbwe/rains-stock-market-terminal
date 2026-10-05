@@ -135,7 +135,7 @@ trades desc by createdAt, max 50. GET may be slow if engine down — never block
 
 ### GET /api/screener → 200
 Merged screener row per listed company: engine snapshot ⨯ Prisma fundamentals ⨯ DailyPrice 52w aggregate.
-`{ "asOf": "ISO", "rows": [{ "symbol","name","sector","price","prevClose","changePct","volume","valueTraded","marketCap","peRatio","dividendYield","eps","beta","sharesOutstanding","fiftyTwoWeekHigh","fiftyTwoWeekLow","sparkline": [closes...] }] }` — `sparkline` = last ≤60 1m closes from the engine snapshot. 503 `{ "error": "engine-unavailable" }` when the engine is down.
+`{ "asOf": "ISO", "rows": [{ "symbol","name","sector","price","prevClose","changePct","volume","valueTraded","marketCap","peRatio","dividendYield","eps","beta","sharesOutstanding","fiftyTwoWeekHigh","fiftyTwoWeekLow","sparkline": [closes...], "chg1w","chg1m","chg3m" }] }` — `sparkline` = last ≤60 1m closes from the engine snapshot; `chg1w/chg1m/chg3m` = % change of the latest seeded daily close vs 5/21/63 trading days back (`null` when history is shorter). 503 `{ "error": "engine-unavailable" }` when the engine is down.
 
 ## 4) PRISMA MODELS (authoritative: prisma/schema.prisma)
 Stock, DailyPrice, NewsItem, WatchlistItem, Alert, Position, CashAccount, Trade — as defined in schema (see schema.prisma). Import db via `import { db } from '@/lib/db'`.

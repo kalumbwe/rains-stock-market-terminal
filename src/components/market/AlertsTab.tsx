@@ -8,7 +8,17 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowDown, ArrowUp, Bell, BellRing, CheckCircle2, Loader2, Trash2 } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Bell,
+  BellOff,
+  BellRing,
+  CheckCircle2,
+  Loader2,
+  Target,
+  Trash2,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -28,6 +38,9 @@ interface AlertsTabProps {
   alerts: PriceAlert[];
   loading: boolean;
   error: boolean;
+  /** Desktop-notification opt-in state + toggle (wired by the terminal root). */
+  notifyEnabled?: boolean;
+  onToggleNotifications?: () => void;
   onCreate: (args: {
     symbol: string;
     condition: AlertCondition;
@@ -36,12 +49,33 @@ interface AlertsTabProps {
   onDelete: (id: string) => Promise<void>;
 }
 
-export function AlertsTab({ alerts, loading, error, onCreate, onDelete }: AlertsTabProps) {
+export function AlertsTab({
+  alerts,
+  loading,
+  error,
+  notifyEnabled = false,
+  onToggleNotifications,
+  onCreate,
+  onDelete,
+}: AlertsTabProps) {
   const symbols = useSymbolOptions();
   const [symbol, setSymbol] = useState<string>('');
   const [condition, setCondition] = useState<AlertCondition>('ABOVE');
   const [target, setTarget] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Presets operate on the form's symbol, falling back to the terminal selection.
+  const terminalSelected = useMarketStore((s) => s.selectedSymbol);
+  const stocks = useMarketStore((s) => s.stocks);
+  const effectiveSymbol = symbol || terminalSelected || symbols[0] || '';
+  const quote = effectiveSymbol ? stocks[effectiveSymbol] : undefined;
+
+  const applyPreset = (cond: AlertCondition, price: number) => {
+    if (!Number.isFinite(price) || price <= 0) return;
+    setSymbol(effectiveSymbol);
+    setCondition(cond);
+    setTarget((Math.round(price * 100) / 100).toFixed(2));
+  };
 
   const active = alerts.filter((a) => a.active);
   const triggered = alerts.filter((a) => !a.active && a.triggeredAt);
@@ -70,6 +104,26 @@ export function AlertsTab({ alerts, loading, error, onCreate, onDelete }: Alerts
           <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
             New Price Alert
           </p>
+          {onToggleNotifications && (
+            <button
+              type="button"
+              onClick={onToggleNotifications}
+              aria-pressed={notifyEnabled}
+              title={notifyEnabled ? 'Desktop notifications are on' : 'Enable desktop notifications'}
+              className={`ml-auto flex h-6 items-center gap-1 rounded-full border px-2 text-[9px] font-bold uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 ${
+                notifyEnabled
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                  : 'border-zinc-800 bg-zinc-950 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
+              }`}
+            >
+              {notifyEnabled ? (
+                <BellRing className="h-3 w-3" aria-hidden="true" />
+              ) : (
+                <BellOff className="h-3 w-3" aria-hidden="true" />
+              )}
+              {notifyEnabled ? 'Notify on' : 'Notify off'}
+            </button>
+          )}
         </div>
         <div className="grid grid-cols-2 gap-2">
           <Select value={symbol} onValueChange={setSymbol}>
@@ -131,6 +185,66 @@ export function AlertsTab({ alerts, loading, error, onCreate, onDelete }: Alerts
               'Set Alert'
             )}
           </Button>
+        </div>
+
+        {/* Quick presets — fill target from the live quote */}
+        <div className="mt-2.5 border-t border-zinc-800/70 pt-2.5">
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <Target className="h-3 w-3 text-zinc-500" aria-hidden="true" />
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+              Quick presets
+            </p>
+            {effectiveSymbol && quote ? (
+              <span className="ml-auto font-mono text-[10px] tabular-nums text-zinc-500">
+                {effectiveSymbol} @ {fmtK(quote.price)}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap gap-0.5" role="group" aria-label="Target price presets">
+            {([1, 5, 10] as const).map((p) => (
+              <button
+                key={`up-${p}`}
+                type="button"
+                disabled={!quote}
+                onClick={() => quote && applyPreset('ABOVE', quote.price * (1 + p / 100))}
+                className="flex h-6 items-center rounded-md border border-emerald-500/25 bg-emerald-500/10 px-1 font-mono text-[10px] font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500 disabled:pointer-events-none disabled:opacity-40"
+                aria-label={`Set target ${p}% above live price`}
+              >
+                +{p}%
+              </button>
+            ))}
+            {([1, 5, 10] as const).map((p) => (
+              <button
+                key={`down-${p}`}
+                type="button"
+                disabled={!quote}
+                onClick={() => quote && applyPreset('BELOW', quote.price * (1 - p / 100))}
+                className="flex h-6 items-center rounded-md border border-rose-500/25 bg-rose-500/10 px-1 font-mono text-[10px] font-semibold text-rose-400 transition-colors hover:bg-rose-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-rose-500 disabled:pointer-events-none disabled:opacity-40"
+                aria-label={`Set target ${p}% below live price`}
+              >
+                −{p}%
+              </button>
+            ))}
+            <span aria-hidden="true" className="mx-px h-6 w-px bg-zinc-800" />
+            <button
+              type="button"
+              disabled={!quote}
+              onClick={() => quote && applyPreset('ABOVE', quote.dayHigh)}
+              className="flex h-6 items-center rounded-md border border-zinc-800 bg-zinc-900 px-1 text-[10px] font-semibold text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 disabled:pointer-events-none disabled:opacity-40"
+              aria-label="Set target at day high"
+            >
+              Day Hi
+            </button>
+            <button
+              type="button"
+              disabled={!quote}
+              onClick={() => quote && applyPreset('BELOW', quote.dayLow)}
+              className="flex h-6 items-center rounded-md border border-zinc-800 bg-zinc-900 px-1 text-[10px] font-semibold text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 disabled:pointer-events-none disabled:opacity-40"
+              aria-label="Set target at day low"
+            >
+              Day Lo
+            </button>
+          </div>
         </div>
       </section>
 

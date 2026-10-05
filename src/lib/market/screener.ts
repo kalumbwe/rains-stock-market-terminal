@@ -27,6 +27,10 @@ export interface ScreenerRow {
   /** Last ≤60 intraday 1m closes — trend sparkline (fallback; live store
    *  buffers take precedence in the UI). */
   sparkline: number[];
+  /** Multi-horizon daily-bar performance % — null when seeded history is short. */
+  chg1w: number | null;
+  chg1m: number | null;
+  chg3m: number | null;
 }
 
 export interface ScreenerResponse {
