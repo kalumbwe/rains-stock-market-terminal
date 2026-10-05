@@ -105,8 +105,9 @@ For `1d`, `t` = date ms (UTC midnight of trading day).
 Merge Prisma NewsItem (oldest/seeded, take latest 15) + engine GET /api/news (latest 25), sort desc by publishedAt, dedupe by headline, cap at limit. `{ "news": [...] }`.
 
 ### Watchlist
-- GET /api/watchlist → `{ "items": [{ "id": "...", "symbol": "ZANACO", "createdAt": "ISO" }] }`
-- POST /api/watchlist `{ "symbol": "ZANACO" }` → 201 `{ "item": {...} }`; 404 unknown symbol; 409 duplicate.
+- GET /api/watchlist → `{ "items": [{ "id": "...", "symbol": "ZANACO", "order": 0, "createdAt": "ISO" }] }` — ordered by manual `order` asc, then createdAt asc.
+- POST /api/watchlist `{ "symbol": "ZANACO" }` → 201 `{ "item": {...} }`; 404 unknown symbol; 409 duplicate. New items get `order = max(order)+1` (append to end).
+- PATCH /api/watchlist `{ "symbols": ["ZSUG","ZANACO",…] }` — persist manual drag-to-reorder order; each index becomes that symbol's `order`. Unknown symbols ignored. → 200 `{ "items": [...] }`; 400 invalid body (array 1–100 required).
 - DELETE /api/watchlist/[id] → `{ "ok": true }` (404 if missing).
 
 ### Alerts

@@ -58,7 +58,10 @@ model NewsItem {
 model WatchlistItem {
   id        String   @id @default(cuid())
   symbol    String   @unique
+  order     Int      @default(0)
   createdAt DateTime @default(now())
+
+  @@index([order])
 }
 
 model Alert {

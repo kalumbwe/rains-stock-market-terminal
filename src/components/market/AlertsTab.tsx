@@ -18,6 +18,8 @@ import {
   Loader2,
   Target,
   Trash2,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +43,9 @@ interface AlertsTabProps {
   /** Desktop-notification opt-in state + toggle (wired by the terminal root). */
   notifyEnabled?: boolean;
   onToggleNotifications?: () => void;
+  /** Audible alert-ping opt-in state + toggle (wired by the terminal root). */
+  soundEnabled?: boolean;
+  onToggleSound?: () => void;
   onCreate: (args: {
     symbol: string;
     condition: AlertCondition;
@@ -55,6 +60,8 @@ export function AlertsTab({
   error,
   notifyEnabled = false,
   onToggleNotifications,
+  soundEnabled = false,
+  onToggleSound,
   onCreate,
   onDelete,
 }: AlertsTabProps) {
@@ -100,17 +107,37 @@ export function AlertsTab({
         className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"
       >
         <div className="mb-2 flex items-center gap-1.5">
-          <Bell className="h-3.5 w-3.5 text-orange-500" aria-hidden="true" />
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+          <Bell className="h-3.5 w-3.5 shrink-0 text-orange-500" aria-hidden="true" />
+          <p className="min-w-0 truncate whitespace-nowrap text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
             New Price Alert
           </p>
+          {onToggleSound && (
+            <button
+              type="button"
+              onClick={onToggleSound}
+              aria-pressed={soundEnabled}
+              title={soundEnabled ? 'Alert sound is on' : 'Play a ping when alerts trigger'}
+              className={`flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 text-[9px] font-bold uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 ${
+                soundEnabled
+                  ? 'border-orange-500/40 bg-orange-500/10 text-orange-400'
+                  : 'border-zinc-800 bg-zinc-950 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
+              } ${onToggleNotifications ? 'ml-1.5' : 'ml-auto'}`}
+            >
+              {soundEnabled ? (
+                <Volume2 className="h-3 w-3" aria-hidden="true" />
+              ) : (
+                <VolumeX className="h-3 w-3" aria-hidden="true" />
+              )}
+              {soundEnabled ? 'Sound on' : 'Sound off'}
+            </button>
+          )}
           {onToggleNotifications && (
             <button
               type="button"
               onClick={onToggleNotifications}
               aria-pressed={notifyEnabled}
               title={notifyEnabled ? 'Desktop notifications are on' : 'Enable desktop notifications'}
-              className={`ml-auto flex h-6 items-center gap-1 rounded-full border px-2 text-[9px] font-bold uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 ${
+              className={`flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 text-[9px] font-bold uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 ${
                 notifyEnabled
                   ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
                   : 'border-zinc-800 bg-zinc-950 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'

@@ -102,6 +102,11 @@ export function TerminalApp() {
     else void alerts.enableNotifications();
   }, [alerts]);
 
+  const toggleSound = useCallback(() => {
+    if (alerts.soundEnabled) alerts.disableSound();
+    else alerts.enableSound();
+  }, [alerts]);
+
   const handleTradeSubmit = useCallback(
     async (args: { symbol: string; side: TradeSide; quantity: number }) =>
       portfolio.submitTrade(args, useMarketStore.getState().stocks[args.symbol]?.price ?? null),
@@ -202,6 +207,8 @@ export function TerminalApp() {
                 error={alerts.error}
                 notifyEnabled={alerts.notifyEnabled}
                 onToggleNotifications={toggleNotifications}
+                soundEnabled={alerts.soundEnabled}
+                onToggleSound={toggleSound}
                 onCreate={alerts.createAlert}
                 onDelete={alerts.removeAlert}
               />
@@ -223,6 +230,8 @@ export function TerminalApp() {
                 alertsError={alerts.error}
                 notifyEnabled={alerts.notifyEnabled}
                 onToggleNotifications={toggleNotifications}
+                soundEnabled={alerts.soundEnabled}
+                onToggleSound={toggleSound}
                 onCreateAlert={alerts.createAlert}
                 onDeleteAlert={alerts.removeAlert}
                 portfolio={portfolio.portfolio}

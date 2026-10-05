@@ -6,12 +6,36 @@
  * change badge and tick-price sparkline.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
-import { Star, Search, Inbox } from 'lucide-react';
+import { GripVertical, Star, Search, Inbox } from 'lucide-react';
 import { Sparkline } from './Sparkline';
 import { useMarketStore } from '@/lib/market/store';
 import { fmtK, fmtPct } from '@/lib/market/format';
@@ -88,6 +112,7 @@ export function StocksList() {
         const optimistic: WatchlistItem = {
           id: `tmp-${symbol}`,
           symbol,
+          order: Number.MAX_SAFE_INTEGER,
           createdAt: new Date().toISOString(),
         };
         setWatchlist((prev) => [...prev, optimistic]);
@@ -136,7 +161,131 @@ export function StocksList() {
     [watchlist, toast]
   );
 
+  // ── Watchlist drag-to-reorder ─────────────────────────────────────
+  // Manual ordering only applies on the Watchlist tab with no active search —
+  // otherwise rows follow the market/filtered order.
+  const reorderMode = tab === 'watchlist' && query.trim() === '';
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const displaySymbols = useMemo(() => {
+    if (reorderMode) {
+      return watchlist.map((w) => w.symbol).filter((sym) => stocks[sym]);
+    }
+    return filtered;
+  }, [reorderMode, watchlist, stocks, filtered]);
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const current = watchlist.map((w) => w.symbol);
+      const from = current.indexOf(String(active.id));
+      const to = current.indexOf(String(over.id));
+      if (from < 0 || to < 0) return;
+
+      const nextSymbols = arrayMove(current, from, to);
+      const bySymbol = new Map(watchlist.map((w) => [w.symbol, w]));
+      const reordered = nextSymbols
+        .map((sym, idx) => {
+          const item = bySymbol.get(sym);
+          return item ? { ...item, order: idx } : null;
+        })
+        .filter((item): item is WatchlistItem => item !== null);
+
+      const prev = watchlist;
+      setWatchlist(reordered);
+      void (async () => {
+        try {
+          const res = await fetch('/api/watchlist', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbols: nextSymbols }),
+          });
+          if (!res.ok) throw new Error('reorder failed');
+          toast({ title: 'Watchlist order saved' });
+        } catch {
+          setWatchlist(prev);
+          toast({
+            title: 'Could not save order',
+            description: 'Changes reverted — please try again.',
+            variant: 'destructive',
+          });
+        }
+      })();
+    },
+    [watchlist, toast]
+  );
+
   const loading = stockOrder.length === 0;
+
+  const renderRow = (sym: string, handle?: ReactNode) => {
+    const q = stocks[sym];
+    if (!q) return null;
+    const starred = watchSymbols.has(sym);
+    const active = selectedSymbol === sym;
+    const spark = priceHistory[sym] ?? [];
+    return (
+      <div
+        key={sym}
+        role="listitem"
+        className={`group flex w-full cursor-pointer items-center gap-2 border-b border-zinc-800/60 px-2.5 py-2 transition-colors ${
+          active
+            ? 'bg-orange-500/10 ring-1 ring-inset ring-orange-500/30'
+            : 'hover:bg-zinc-800/40'
+        }`}
+        onClick={() => setSelected(sym)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setSelected(sym);
+          }
+        }}
+        tabIndex={0}
+        aria-label={`${q.name}, ${fmtK(q.price)}, ${fmtPct(q.changePct)}`}
+      >
+        {handle}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            void toggleStar(sym);
+          }}
+          disabled={pendingStars.has(sym)}
+          aria-label={starred ? `Remove ${sym} from watchlist` : `Add ${sym} to watchlist`}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-orange-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 disabled:opacity-50"
+        >
+          <Star
+            className={`h-3.5 w-3.5 ${starred ? 'fill-orange-500 text-orange-500' : ''}`}
+            aria-hidden="true"
+          />
+        </button>
+
+        <div className="min-w-0 flex-1 leading-tight">
+          <div className="truncate text-sm font-bold tracking-wide text-zinc-100">
+            {q.symbol}
+          </div>
+          <p className="truncate text-[11px] text-zinc-500">{q.name}</p>
+        </div>
+
+        <Sparkline values={spark} width={44} height={20} />
+
+        <div className="w-[72px] shrink-0 text-right leading-tight">
+          <div className="font-mono text-sm font-semibold tabular-nums text-zinc-100">
+            {fmtK(q.price)}
+          </div>
+          <span
+            className={`mt-0.5 inline-block rounded border px-1 py-px font-mono text-[10px] font-medium tabular-nums ${pctBadgeClass(q.changePct)}`}
+          >
+            {fmtPct(q.changePct)}
+          </span>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <section
@@ -194,7 +343,7 @@ export function StocksList() {
               </div>
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : displaySymbols.length === 0 ? (
           <div className="flex h-40 flex-col items-center justify-center gap-2 text-zinc-500">
             <Inbox className="h-6 w-6" aria-hidden="true" />
             <p className="text-sm">
@@ -203,71 +352,78 @@ export function StocksList() {
                 : 'No stocks match your search.'}
             </p>
           </div>
+        ) : reorderMode ? (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={displaySymbols}
+              strategy={verticalListSortingStrategy}
+            >
+              {displaySymbols.map((sym) => (
+                <SortableRow key={sym} id={sym}>
+                  {(handle) => renderRow(sym, handle)}
+                </SortableRow>
+              ))}
+            </SortableContext>
+          </DndContext>
         ) : (
-          filtered.map((sym) => {
-            const q = stocks[sym];
-            const starred = watchSymbols.has(sym);
-            const active = selectedSymbol === sym;
-            const spark = priceHistory[sym] ?? [];
-            return (
-              <div
-                key={sym}
-                role="listitem"
-                className={`group flex w-full cursor-pointer items-center gap-2 border-b border-zinc-800/60 px-2.5 py-2 transition-colors ${
-                  active
-                    ? 'bg-orange-500/10 ring-1 ring-inset ring-orange-500/30'
-                    : 'hover:bg-zinc-800/40'
-                }`}
-                onClick={() => setSelected(sym)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setSelected(sym);
-                  }
-                }}
-                tabIndex={0}
-                aria-label={`${q.name}, ${fmtK(q.price)}, ${fmtPct(q.changePct)}`}
-              >
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void toggleStar(sym);
-                  }}
-                  disabled={pendingStars.has(sym)}
-                  aria-label={starred ? `Remove ${sym} from watchlist` : `Add ${sym} to watchlist`}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-zinc-800 hover:text-orange-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 disabled:opacity-50"
-                >
-                  <Star
-                    className={`h-3.5 w-3.5 ${starred ? 'fill-orange-500 text-orange-500' : ''}`}
-                    aria-hidden="true"
-                  />
-                </button>
-
-                <div className="min-w-0 flex-1 leading-tight">
-                  <div className="truncate text-sm font-bold tracking-wide text-zinc-100">
-                    {q.symbol}
-                  </div>
-                  <p className="truncate text-[11px] text-zinc-500">{q.name}</p>
-                </div>
-
-                <Sparkline values={spark} width={44} height={20} />
-
-                <div className="w-[72px] shrink-0 text-right leading-tight">
-                  <div className="font-mono text-sm font-semibold tabular-nums text-zinc-100">
-                    {fmtK(q.price)}
-                  </div>
-                  <span
-                    className={`mt-0.5 inline-block rounded border px-1 py-px font-mono text-[10px] font-medium tabular-nums ${pctBadgeClass(q.changePct)}`}
-                  >
-                    {fmtPct(q.changePct)}
-                  </span>
-                </div>
-              </div>
-            );
-          })
+          displaySymbols.map((sym) => renderRow(sym))
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * dnd-kit sortable wrapper for watchlist rows. Renders no visible chrome of
+ * its own — the drag handle node is passed to the row via render prop so it
+ * slots into the row's flex layout. Pointer activation needs 6px of travel
+ * so plain clicks still select the stock; keyboard reorder works via the
+ * focusable handle (Space to lift, arrows to move).
+ */
+function SortableRow({
+  id,
+  children,
+}: {
+  id: string;
+  children: (handle: ReactNode) => ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id });
+
+  const handle = (
+    <button
+      type="button"
+      {...attributes}
+      {...listeners}
+      onClick={(e) => e.stopPropagation()}
+      aria-label={`Reorder ${id}`}
+      aria-roledescription="Drag handle — press space to lift, arrows to move"
+      className="-ml-1 flex h-8 w-5 shrink-0 cursor-grab touch-none items-center justify-center rounded text-zinc-600 transition-colors hover:bg-zinc-800/60 hover:text-orange-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 active:cursor-grabbing"
+    >
+      <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
+    </button>
+  );
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Translate.toString(transform),
+        transition,
+        zIndex: isDragging ? 30 : undefined,
+        opacity: isDragging ? 0.92 : undefined,
+        boxShadow: isDragging
+          ? '0 12px 28px rgba(0,0,0,0.55), 0 0 0 1px rgba(249,115,22,0.35)'
+          : undefined,
+        borderRadius: isDragging ? 10 : undefined,
+      }}
+      className={isDragging ? 'relative bg-zinc-900' : 'relative'}
+    >
+      {children(handle)}
+    </div>
   );
 }

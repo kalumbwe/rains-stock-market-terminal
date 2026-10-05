@@ -23,6 +23,9 @@ interface SideRailProps {
   /** Desktop-notification opt-in state + toggle for the AlertsTab form. */
   notifyEnabled: boolean;
   onToggleNotifications: () => void;
+  /** Audible alert-ping opt-in state + toggle for the AlertsTab form. */
+  soundEnabled: boolean;
+  onToggleSound: () => void;
   onCreateAlert: (args: {
     symbol: string;
     condition: AlertCondition;
@@ -109,6 +112,8 @@ export function SideRail(props: SideRailProps) {
             error={props.alertsError}
             notifyEnabled={props.notifyEnabled}
             onToggleNotifications={props.onToggleNotifications}
+            soundEnabled={props.soundEnabled}
+            onToggleSound={props.onToggleSound}
             onCreate={props.onCreateAlert}
             onDelete={props.onDeleteAlert}
           />

@@ -236,3 +236,36 @@ Stage Summary:
 - Runbook unchanged: Next :3000 (auto), engine :3003 via setsid nohup (full restart after edits — check /health ticking:true), preview via Caddy :81 (socket.io needs XTransformPort). NOTE: Radix tabs need agent-browser click @ref (synthetic el.click() does not switch tabs).
 - Remaining ideas (priority): price-history export incl. news; i18n (EN/Bembe/Lozi); NextAuth watchlist sync; light theme; sound option for alert triggers; engine state versioning guard.
 - Known minor: Notification permission in headless QA is auto-denied (native prompt only in real browsers — by design); screener 1W/3M columns only visible ≥1280px viewport (xl) to keep the table compact; compare/correlation still use seeded daily history (illustrative).
+
+---
+Task ID: 10 (cron webDevReview round 6)
+Agent: main coordinator (scheduled review)
+Task: Status assessment, agent-browser QA, feature round (watchlist drag-to-reorder + alert sound + news CSV export) + OOM incident recovery.
+
+Work Log:
+- STATUS ASSESSMENT: engine :3003 ticking:true/persist:true, Next :3000 200, gateway :81 200. Baseline agent-browser QA (desktop 1440 + mobile 390 via :81): live ticks/tape, tabs switch, screener renders, ZERO console errors, no h-scroll — NO product bugs found → proceeded to feature work. (One scare: stale console errors "Module not found: ShortcutsDialog" persisted in agent-browser's console BUFFER from a previous session's transient HMR state — a fully fresh browser session showed 0 errors; trust fresh sessions, not accumulated buffers.)
+- OOM INCIDENT + RECOVERY (critical ops lesson): mid-round the Next dev server AND engine processes died. dmesg showed the OOM killer reaped next-server (2GB RSS!) on this 4GB sandbox — compounded by THREE stray engine instances (bun --hot) from earlier rounds. Cleanup: killed all stray engines by PID, restarted ONE engine + ONE Next via /tmp/start_services.sh (setsid nohup). Both stable since. Watch memory: avoid duplicate dev processes; full Turbopack recompiles after Prisma regen are heavy.
+- PRISMA CLIENT GOTCHA: after adding WatchlistItem.order + db:push, /api/watchlist returned PrismaClientValidationError until BOTH db:generate re-ran AND the dev server was fully restarted (Turbopack keeps the old client module in memory). Any Prisma schema change → restart Next dev.
+- FEATURE 1 — Watchlist drag-to-reorder (dnd-kit, persisted):
+  - Prisma: WatchlistItem.order Int @default(0) + @@index([order]); db:push OK (existing rows order=0).
+  - API: GET orders by [{order:asc},{createdAt:asc}] and maps `order`; POST appends with order=max+1; NEW PATCH /api/watchlist {symbols:[...]} sets index orders in a $transaction (unknown symbols ignored, 400 on invalid body). shared/api-contract.md updated.
+  - StocksList: reorderMode = watchlist tab AND empty search; displaySymbols follows watchlist order in that mode; DndContext+SortableContext(verticalListSortingStrategy) wraps rows; SortableRow render-prop injects a GripVertical handle (h-8 w-5 touch-none, keyboard-reorderable, Space/arrows); PointerSensor distance 6 keeps plain click = select; dragging row gets lift shadow + orange ring; dragEnd → arrayMove → optimistic setWatchlist → PATCH → "Watchlist order saved" toast, revert + destructive toast on failure; optimistic star item carries order MAX_SAFE_INTEGER.
+  - VERIFIED E2E: agent-browser drag of ZSUG handle from row 1 → row 5 reordered UI instantly; server GET showed new order; FULL PAGE RELOAD kept the order; PATCH validation (empty array / garbage body → 400); console 0 errors.
+- FEATURE 2 — Alert sound (Web Audio ping, opt-in):
+  - NEW src/lib/market/sound.ts: readAlertSoundPref/writeAlertSoundPref (localStorage luse_alert_sound) + playAlertBeep() — two sine notes A5→E6, shared gain envelope, autoplay-policy resume, SSR-safe no-ops.
+  - use-alert-engine: soundEnabled state hydrated on mount, enableSound (persists + confirmation beep + toast) / disableSound; trigger loop now fires beep when pref on (alongside toast + desktop notification). Interface extended.
+  - Prop threading: TerminalApp toggleSound → mobile AlertsTab + desktop SideRail → AlertsTab. New "Sound on/off" pill chip (orange when on, Volume2/VolumeX) sits next to Notify chip.
+  - VERIFIED: toggle → chip flips SOUND OFF→ON, toast "🔊 Alert sound on", localStorage luse_alert_sound=on; live trigger test (ZSUG below K75 vs live K69.66) fired instantly → TRIGGERED 2→3 with toast; beep path executed (headless-silent), 0 console errors.
+- FEATURE 3 — News CSV export (completes the export story: candles/portfolio/screener/news):
+  - NewsTab: export button (Download icon, h-8 w-8, disabled when 0 filtered) beside the company-only toggle; exportCsv() dumps the CURRENTLY FILTERED feed (publishedAt,source,sentiment,impact,symbols,headline,body) with proper quote-escaping → luse_news_YYYYMMDD.csv.
+  - VERIFIED: clicked with 17 filtered rows → 5,128-byte CSV downloaded; header + 16 data rows, live socket headlines included, quoting correct.
+- STYLING DETAIL (alerts header): chips gained whitespace-nowrap + shrink-0 (no more two-line wrap), label truncates (min-w-0 truncate) so "NEW PRICE ALERT" yields gracefully while BOTH chips stay fully visible in the 340px rail; ml-auto moved onto the sound chip conditionally (no duplicate auto-margin conflict); Bell icon shrink-0.
+- Verification: bunx tsc --noEmit → only the 2 pre-existing skills/** errors (src clean); bun run lint clean; agent-browser E2E desktop+mobile all green; engine ticking:true/persist:true throughout; restored watchlist to canonical order after drag tests.
+- Files: prisma/schema.prisma, src/app/api/watchlist/route.ts, src/lib/market/types.ts, src/lib/market/sound.ts (NEW), src/hooks/use-alert-engine.ts, src/components/market/{StocksList,AlertsTab,SideRail,TerminalApp,NewsTab}.tsx, shared/api-contract.md, /tmp/start_services.sh (ops helper).
+- Runbook: Next :3000 (auto or /tmp/start_services.sh), engine :3003 via setsid nohup full restart after edits (kill by port PID — pkill -f misses bun --hot), preview via Caddy :81. After ANY prisma schema change: db:push + db:generate + RESTART Next dev.
+
+Stage Summary:
+- Watchlist is now a first-class, persistent, keyboard-accessible ordered list (drag handles, optimistic UI, server persistence); alerts gained an audible channel (opt-in Web Audio ping) completing toast+system-notification+sound; news feed completes the CSV export suite (candles/portfolio/screener/news).
+- Ops reliability hardened: OOM root-caused (2GB next-server + duplicate engines on 4GB sandbox), stray processes reaped, single-instance runbook documented, Prisma-regen-needs-restart gotcha recorded.
+- Remaining ideas (priority): light theme; i18n (EN/Bembe/Lozi); NextAuth watchlist sync across devices; engine state versioning guard; sound volume/choice options; screener compare-row highlight for watchlist symbols.
+- Known minor: alert label truncates to "NEW PRIC…" in 340px rail (by design, chips win); desktop-notification permission still auto-denied in headless QA (real browsers show prompt); sound pref is per-browser (localStorage) not per-account.

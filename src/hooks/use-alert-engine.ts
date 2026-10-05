@@ -11,6 +11,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
 import { useMarketStore } from '@/lib/market/store';
 import { fmtK } from '@/lib/market/format';
+import {
+  playAlertBeep,
+  readAlertSoundPref,
+  writeAlertSoundPref,
+} from '@/lib/market/sound';
 import type { AlertCondition, PriceAlert } from '@/lib/market/types';
 
 const NOTIFY_PREF_KEY = 'luse_desktop_notify';
@@ -44,6 +49,12 @@ export interface AlertsState {
   enableNotifications: () => Promise<boolean>;
   /** Turn desktop notifications off. */
   disableNotifications: () => void;
+  /** User opted in to an audible ping when alerts trigger. */
+  soundEnabled: boolean;
+  /** Turn the alert sound on (persists the preference). */
+  enableSound: () => void;
+  /** Turn the alert sound off. */
+  disableSound: () => void;
   refresh: () => Promise<void>;
   createAlert: (args: {
     symbol: string;
@@ -58,12 +69,14 @@ export function useAlertEngine(): AlertsState {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [notifyEnabled, setNotifyEnabled] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(false);
   const alertsRef = useRef<PriceAlert[]>([]);
   const firedRef = useRef<Set<string>>(new Set());
 
-  // Hydrate the persisted notification preference once on mount.
+  // Hydrate the persisted notification + sound preferences once on mount.
   useEffect(() => {
     setNotifyEnabled(readNotifyPref());
+    setSoundEnabled(readAlertSoundPref());
   }, []);
 
   const enableNotifications = useCallback(async () => {
@@ -107,6 +120,23 @@ export function useAlertEngine(): AlertsState {
       /* ignore */
     }
     setNotifyEnabled(false);
+  }, []);
+
+  const enableSound = useCallback(() => {
+    writeAlertSoundPref(true);
+    setSoundEnabled(true);
+    // Immediate audible confirmation — also satisfies autoplay policies
+    // because this runs inside a user-gesture handler.
+    playAlertBeep();
+    toast({
+      title: '🔊 Alert sound on',
+      description: 'Triggered alerts will now play a short ping.',
+    });
+  }, []);
+
+  const disableSound = useCallback(() => {
+    writeAlertSoundPref(false);
+    setSoundEnabled(false);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -154,6 +184,7 @@ export function useAlertEngine(): AlertsState {
         const body = `Live price ${fmtK(livePrice)} triggered your ${a.condition.toLowerCase()} alert.`;
         toast({ title, description: body });
         fireDesktopNotification(title, body);
+        if (readAlertSoundPref()) playAlertBeep();
         void fetch(`/api/alerts/${a.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -230,6 +261,9 @@ export function useAlertEngine(): AlertsState {
     notifyEnabled,
     enableNotifications,
     disableNotifications,
+    soundEnabled,
+    enableSound,
+    disableSound,
     refresh,
     createAlert,
     removeAlert,

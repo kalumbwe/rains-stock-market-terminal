@@ -122,6 +122,8 @@ export interface PriceAlert {
 export interface WatchlistItem {
   id: string;
   symbol: string;
+  /** Manual sort position (drag-to-reorder); lower renders first. */
+  order: number;
   createdAt: string;
 }
 

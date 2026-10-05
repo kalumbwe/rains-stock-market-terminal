@@ -7,9 +7,9 @@
  * the related stock.
  */
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Newspaper, Radio, Search, SlidersHorizontal } from 'lucide-react';
+import { Download, Newspaper, Radio, Search, SlidersHorizontal } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMarketStore } from '@/lib/market/store';
@@ -77,6 +77,36 @@ export function NewsTab() {
     [news]
   );
 
+  // Client-side CSV of the currently filtered feed (same rows the user sees).
+  const exportCsv = useCallback(() => {
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const header = 'publishedAt,source,sentiment,impact,symbols,headline,body';
+    const rows = filtered.map((n) =>
+      [
+        n.publishedAt,
+        esc(n.source),
+        n.sentiment,
+        n.impact,
+        esc(n.symbols.join(' ')),
+        esc(n.headline),
+        esc(n.body),
+      ].join(',')
+    );
+    const stamp = new Date()
+      .toISOString()
+      .slice(0, 10)
+      .replace(/-/g, '');
+    const blob = new Blob([[header, ...rows].join('\r\n')], {
+      type: 'text/csv;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `luse_news_${stamp}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filtered]);
+
   if (news.length === 0) {
     return (
       <div className="space-y-3" aria-busy="true" aria-label="Loading news">
@@ -122,6 +152,16 @@ export function NewsTab() {
             aria-label="Company news only"
           >
             <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={exportCsv}
+            disabled={filtered.length === 0}
+            title={`Export ${filtered.length} filtered headlines as CSV`}
+            aria-label={`Export ${filtered.length} filtered news headlines as CSV`}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-950 text-zinc-500 transition-colors hover:text-orange-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-zinc-500"
+          >
+            <Download className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Sentiment filter">
