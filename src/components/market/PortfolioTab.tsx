@@ -8,7 +8,8 @@
 
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { History, Loader2, RotateCcw, Wallet } from 'lucide-react';
+import { History, Loader2, PieChart as PieChartIcon, RotateCcw, Wallet } from 'lucide-react';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,6 +49,31 @@ interface PortfolioTabProps {
   onReset: () => Promise<boolean>;
 }
 
+/* ---------- Sector palette + analytics helpers ---------- */
+
+const SECTOR_COLORS: Record<string, string> = {
+  Banking: '#10b981',
+  Mining: '#f97316',
+  Energy: '#eab308',
+  Telecommunications: '#a855f7',
+  'Consumer Staples': '#84cc16',
+  'Consumer Discretionary': '#f43f5e',
+  Industrials: '#14b8a6',
+  'Real Estate': '#d946ef',
+};
+const FALLBACK_COLORS = ['#f97316', '#10b981', '#eab308', '#f43f5e', '#14b8a6', '#a855f7'];
+const CASH_COLOR = '#52525b';
+
+function sectorColor(sector: string, idx: number): string {
+  return SECTOR_COLORS[sector] ?? FALLBACK_COLORS[idx % FALLBACK_COLORS.length];
+}
+
+interface AllocationSlice {
+  name: string;
+  value: number;
+  color: string;
+}
+
 export function PortfolioTab({ portfolio, loading, onSell, onReset }: PortfolioTabProps) {
   const stocks = useMarketStore((s) => s.stocks);
   const [resetting, setResetting] = useState(false);
@@ -69,6 +95,47 @@ export function PortfolioTab({ portfolio, loading, onSell, onReset }: PortfolioT
   const pnl = totalValue - initialCash;
   const pnlPct = initialCash > 0 ? (pnl / initialCash) * 100 : 0;
   const pnlColor = pnl > 0 ? 'text-emerald-400' : pnl < 0 ? 'text-rose-400' : 'text-zinc-400';
+
+  /* ----- Analytics: sector allocation (incl. cash) + trading stats ----- */
+  const allocation = useMemo<AllocationSlice[]>(() => {
+    if (cash === null) return [];
+    const bySector = new Map<string, number>();
+    for (const p of positions) {
+      const live = stocks[p.symbol]?.price ?? p.avgCost;
+      const sector = stocks[p.symbol]?.sector ?? 'Other';
+      bySector.set(sector, (bySector.get(sector) ?? 0) + p.quantity * live);
+    }
+    const slices: AllocationSlice[] = [...bySector.entries()].map(([sector, value], i) => ({
+      name: sector,
+      value,
+      color: sectorColor(sector, i),
+    }));
+    slices.sort((a, b) => b.value - a.value);
+    if (cash > 0) slices.push({ name: 'Cash', value: cash, color: CASH_COLOR });
+    return slices;
+  }, [positions, stocks, cash]);
+
+  const tradeStats = useMemo(() => {
+    const trades = portfolio?.trades ?? [];
+    const buys = trades.filter((t) => t.side === 'BUY');
+    const sells = trades.filter((t) => t.side === 'SELL');
+    const fees = trades.reduce((a, t) => a + t.fees, 0);
+    const turnover = buys.reduce((a, t) => a + t.grossValue, 0);
+    const unrealized = positions.reduce((a, p) => {
+      const live = stocks[p.symbol]?.price ?? p.avgCost;
+      return a + (live - p.avgCost) * p.quantity;
+    }, 0);
+    return {
+      count: trades.length,
+      buys: buys.length,
+      sells: sells.length,
+      fees,
+      avgBuy: buys.length > 0 ? turnover / buys.length : 0,
+      unrealized,
+    };
+  }, [portfolio?.trades, positions, stocks]);
+
+  const totalAlloc = allocation.reduce((a, s) => a + s.value, 0);
 
   return (
     <div className="space-y-4">
@@ -159,6 +226,117 @@ export function PortfolioTab({ portfolio, loading, onSell, onReset }: PortfolioT
           </>
         )}
       </section>
+
+      {/* Analytics — allocation donut + trading stats */}
+      {!loading && cash !== null && (
+        <section
+          aria-label="Portfolio analytics"
+          className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4"
+        >
+          <div className="flex items-center gap-1.5">
+            <PieChartIcon className="h-3.5 w-3.5 text-orange-500" aria-hidden="true" />
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+              Allocation & Activity
+            </p>
+          </div>
+
+          <div className="mt-3 flex items-center gap-3">
+            {allocation.length > 0 && totalAlloc > 0 ? (
+              <>
+                <div className="relative h-[120px] w-[120px] shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={allocation}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={38}
+                        outerRadius={56}
+                        paddingAngle={2}
+                        strokeWidth={0}
+                        isAnimationActive={false}
+                      >
+                        {allocation.map((s) => (
+                          <Cell key={s.name} fill={s.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#101013',
+                          border: '1px solid #3f3f46',
+                          borderRadius: 8,
+                          fontSize: 11,
+                        }}
+                        formatter={(value: number | string, name: string) => [
+                          fmtMoney(Number(value)),
+                          name,
+                        ]}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-[8px] uppercase tracking-widest text-zinc-500">Equity</span>
+                    <span className="font-mono text-[11px] font-bold tabular-nums text-zinc-200">
+                      {fmtMoney(equity)}
+                    </span>
+                  </div>
+                </div>
+                <ul className="min-w-0 flex-1 space-y-1" aria-label="Allocation by sector">
+                  {allocation.map((s) => (
+                    <li key={s.name} className="flex items-center gap-1.5 text-[11px]">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: s.color }}
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 flex-1 truncate text-zinc-400">{s.name}</span>
+                      <span className="font-mono tabular-nums text-zinc-300">
+                        {Math.round((s.value / totalAlloc) * 100)}%
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="text-xs text-zinc-600">
+                Allocation appears once you hold a position or cash.
+              </p>
+            )}
+          </div>
+
+          <div className="mt-3 grid grid-cols-3 gap-2 border-t border-zinc-800/70 pt-3">
+            <div>
+              <p className="text-[9px] uppercase tracking-wider text-zinc-600">Trades</p>
+              <p className="font-mono text-xs font-bold tabular-nums text-zinc-200">
+                {tradeStats.count}
+                <span className="ml-1 font-normal text-zinc-500">
+                  ({tradeStats.buys}B/{tradeStats.sells}S)
+                </span>
+              </p>
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-wider text-zinc-600">Fees Paid</p>
+              <p className="font-mono text-xs font-bold tabular-nums text-amber-400/90">
+                {fmtK(tradeStats.fees)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-wider text-zinc-600">Unrealized P&L</p>
+              <p
+                className={`font-mono text-xs font-bold tabular-nums ${
+                  tradeStats.unrealized > 0
+                    ? 'text-emerald-400'
+                    : tradeStats.unrealized < 0
+                      ? 'text-rose-400'
+                      : 'text-zinc-400'
+                }`}
+              >
+                {fmtSignedMoney(tradeStats.unrealized)}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Positions */}
       <section

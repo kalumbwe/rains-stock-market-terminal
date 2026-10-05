@@ -34,6 +34,8 @@ export function Footer() {
             sell
             <kbd className="rounded border border-zinc-800 bg-zinc-900 px-1 font-mono text-[10px] text-zinc-400">P</kbd>
             screener
+            <kbd className="rounded border border-zinc-800 bg-zinc-900 px-1 font-mono text-[10px] text-zinc-400">C</kbd>
+            compare
           </span>
         </div>
         <p className="flex items-center gap-1.5 leading-snug">

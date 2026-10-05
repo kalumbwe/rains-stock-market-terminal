@@ -2,11 +2,14 @@
 
 /**
  * News tab — sentiment-badged feed from GET /api/news + socket `news`
- * prepend (store). Symbol chips select the related stock.
+ * prepend (store). Adds a filter bar: free-text search, sentiment chips
+ * and a company-only toggle (drops macro headlines). Symbol chips select
+ * the related stock.
  */
 
+import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Newspaper, Radio } from 'lucide-react';
+import { Newspaper, Radio, Search, SlidersHorizontal } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMarketStore } from '@/lib/market/store';
@@ -35,10 +38,44 @@ function impactOpacity(impact: Impact): string {
   }
 }
 
+type SentimentFilter = 'ALL' | Sentiment;
+
+const SENTIMENT_CHIPS: { key: SentimentFilter; label: string }[] = [
+  { key: 'ALL', label: 'All' },
+  { key: 'POSITIVE', label: 'Bullish' },
+  { key: 'NEGATIVE', label: 'Bearish' },
+  { key: 'NEUTRAL', label: 'Neutral' },
+];
+
 export function NewsTab() {
   const news = useMarketStore((s) => s.news);
   const setSelected = useMarketStore((s) => s.setSelected);
   const connected = useMarketStore((s) => s.connected);
+
+  const [query, setQuery] = useState('');
+  const [sentiment, setSentiment] = useState<SentimentFilter>('ALL');
+  const [companyOnly, setCompanyOnly] = useState(false);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return news.filter((item) => {
+      if (sentiment !== 'ALL' && item.sentiment !== sentiment) return false;
+      if (companyOnly && item.symbols.length === 0) return false;
+      if (q) {
+        const hay = `${item.headline} ${item.body} ${item.symbols.join(' ')}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [news, query, sentiment, companyOnly]);
+
+  const counts = useMemo(
+    () => ({
+      positive: news.filter((n) => n.sentiment === 'POSITIVE').length,
+      negative: news.filter((n) => n.sentiment === 'NEGATIVE').length,
+    }),
+    [news]
+  );
 
   if (news.length === 0) {
     return (
@@ -56,20 +93,98 @@ export function NewsTab() {
 
   return (
     <div className="space-y-3" aria-label="Market news feed">
-      {connected && (
+      {/* Filter bar */}
+      <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-900/40 p-2.5">
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-zinc-600"
+              aria-hidden="true"
+            />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search headlines…"
+              aria-label="Search news headlines"
+              className="h-8 w-full rounded-md border border-zinc-800 bg-zinc-950 pl-7 pr-2 text-xs text-zinc-200 placeholder:text-zinc-600 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setCompanyOnly((v) => !v)}
+            aria-pressed={companyOnly}
+            title="Only show headlines tagged to specific companies (hide macro)"
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 ${
+              companyOnly
+                ? 'border-orange-500/50 bg-orange-500/15 text-orange-400'
+                : 'border-zinc-800 bg-zinc-950 text-zinc-500 hover:text-zinc-300'
+            }`}
+            aria-label="Company news only"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Sentiment filter">
+          {SENTIMENT_CHIPS.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => setSentiment(c.key)}
+              aria-pressed={sentiment === c.key}
+              className={`h-6 rounded-md border px-2 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 ${
+                sentiment === c.key
+                  ? 'border-orange-500/50 bg-orange-500/15 text-orange-400'
+                  : 'border-zinc-800 bg-zinc-950/60 text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              {c.label}
+            </button>
+          ))}
+          <span className="ml-auto font-mono text-[10px] tabular-nums text-zinc-600" aria-live="polite">
+            {filtered.length}/{news.length}
+            {counts.negative > 0 && counts.positive > 0 && (
+              <span className="ml-1.5" title={`${counts.positive} bullish · ${counts.negative} bearish`}>
+                <span className="text-emerald-500">{counts.positive}▲</span>{' '}
+                <span className="text-rose-500">{counts.negative}▼</span>
+              </span>
+            )}
+          </span>
+        </div>
+      </div>
+
+      {connected && filtered.length > 0 && (
         <p className="flex items-center gap-1.5 px-0.5 text-[11px] text-zinc-500">
           <Radio className="h-3 w-3 animate-pulse text-orange-500" aria-hidden="true" />
           Live feed — new headlines appear automatically
         </p>
       )}
-      {news.map((item, idx) => (
-        <NewsCard
-          key={item.id}
-          item={item}
-          fresh={idx === 0}
-          onSelect={setSelected}
-        />
-      ))}
+
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-zinc-800 py-8 text-zinc-600">
+          <Newspaper className="h-5 w-5" aria-hidden="true" />
+          <p className="text-xs">No headlines match your filters.</p>
+          <button
+            type="button"
+            onClick={() => {
+              setQuery('');
+              setSentiment('ALL');
+              setCompanyOnly(false);
+            }}
+            className="rounded-md border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-orange-400 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500"
+          >
+            Clear filters
+          </button>
+        </div>
+      ) : (
+        filtered.map((item, idx) => (
+          <NewsCard
+            key={item.id}
+            item={item}
+            fresh={idx === 0 && query === '' && sentiment === 'ALL'}
+            onSelect={setSelected}
+          />
+        ))
+      )}
     </div>
   );
 }
@@ -89,7 +204,7 @@ function NewsCard({
       initial={fresh ? { opacity: 0, y: -8 } : false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 transition-colors hover:border-zinc-700"
+      className="news-card rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 hover:border-zinc-700"
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">

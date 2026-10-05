@@ -39,6 +39,7 @@ import { PortfolioTab } from './PortfolioTab';
 import { AlertsTab } from './AlertsTab';
 import { NewsTab } from './NewsTab';
 import { ScreenerDialog } from './ScreenerDialog';
+import { CompareDialog } from './CompareDialog';
 import { TradeDialog, type TradeSide } from './TradeDialog';
 import { Footer } from './Footer';
 
@@ -79,13 +80,17 @@ export function TerminalApp() {
   // Market screener dialog
   const [screenerOpen, setScreenerOpen] = useState(false);
 
+  // Compare dialog
+  const [compareOpen, setCompareOpen] = useState(false);
+
   const openTrade = useCallback((symbol: string, side: TradeSide) => {
     setTrade({ open: true, symbol, side });
   }, []);
 
-  // Global keyboard shortcuts: / search · ↑↓ navigate · B buy · S sell · P screener.
+  // Global keyboard shortcuts: / search · ↑↓ navigate · B buy · S sell · P screener · C compare.
   const openScreener = useCallback(() => setScreenerOpen(true), []);
-  useKeyboardShortcuts(openTrade, openScreener);
+  const openCompare = useCallback(() => setCompareOpen(true), []);
+  useKeyboardShortcuts(openTrade, openScreener, openCompare);
 
   const handleTradeSubmit = useCallback(
     async (args: { symbol: string; side: TradeSide; quantity: number }) =>
@@ -104,7 +109,7 @@ export function TerminalApp() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[#0a0a0b] text-zinc-100">
-      <Header onOpenScreener={() => setScreenerOpen(true)} />
+      <Header onOpenScreener={() => setScreenerOpen(true)} onOpenCompare={() => setCompareOpen(true)} />
       <TickerTape />
 
       {/* Engine-down banner */}
@@ -231,6 +236,7 @@ export function TerminalApp() {
       />
 
       <ScreenerDialog open={screenerOpen} onOpenChange={setScreenerOpen} />
+      <CompareDialog open={compareOpen} onOpenChange={setCompareOpen} />
     </div>
   );
 }

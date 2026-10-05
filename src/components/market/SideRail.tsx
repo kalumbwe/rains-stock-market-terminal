@@ -7,9 +7,9 @@
  */
 
 import { useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart3, Bell, Newspaper, Wallet } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { MarketTab } from './MarketTab';
 import { PortfolioTab } from './PortfolioTab';
 import { AlertsTab } from './AlertsTab';
@@ -77,40 +77,59 @@ export function SideRail(props: SideRailProps) {
       </TabsList>
 
       <div className="luse-scroll mt-2 min-h-0 flex-1 overflow-y-auto pb-1 pr-0.5">
-        <AnimatePresence initial={false}>
-          <motion.div
-            key={tab}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.18 }}
-          >
-            <TabsContent value="market" className="mt-0">
-              <MarketTab />
-            </TabsContent>
-            <TabsContent value="portfolio" className="mt-0">
-              <PortfolioTab
-                portfolio={props.portfolio}
-                loading={props.portfolioLoading}
-                onSell={props.onSell}
-                onReset={props.onReset}
-              />
-            </TabsContent>
-            <TabsContent value="news" className="mt-0">
-              <NewsTab />
-            </TabsContent>
-            <TabsContent value="alerts" className="mt-0">
-              <AlertsTab
-                alerts={props.alerts}
-                loading={props.alertsLoading}
-                error={props.alertsError}
-                onCreate={props.onCreateAlert}
-                onDelete={props.onDeleteAlert}
-              />
-            </TabsContent>
-          </motion.div>
-        </AnimatePresence>
+        {/*
+          NOTE: deliberately NOT wrapping TabsContent in AnimatePresence —
+          exiting framer subtrees stay mounted during exit while the Radix
+          Tabs context already points at the new tab, which duplicates the
+          newly-active content inside the exiting clone on rapid switches.
+          Each content animates itself in instead (Radix unmounts inactive
+          panes synchronously, so no exit animation is needed).
+        */}
+        <TabPane value="market">
+          <MarketTab />
+        </TabPane>
+        <TabPane value="portfolio">
+          <PortfolioTab
+            portfolio={props.portfolio}
+            loading={props.portfolioLoading}
+            onSell={props.onSell}
+            onReset={props.onReset}
+          />
+        </TabPane>
+        <TabPane value="news">
+          <NewsTab />
+        </TabPane>
+        <TabPane value="alerts">
+          <AlertsTab
+            alerts={props.alerts}
+            loading={props.alertsLoading}
+            error={props.alertsError}
+            onCreate={props.onCreateAlert}
+            onDelete={props.onDeleteAlert}
+          />
+        </TabPane>
       </div>
     </Tabs>
+  );
+}
+
+/** Self-animating tab pane (fade/slide in on mount). */
+function TabPane({
+  value,
+  children,
+}: {
+  value: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <TabsContent value={value} className="mt-0">
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.18 }}
+      >
+        {children}
+      </motion.div>
+    </TabsContent>
   );
 }
