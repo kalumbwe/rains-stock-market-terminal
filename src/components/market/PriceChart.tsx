@@ -2,8 +2,9 @@
 
 /**
  * Center chart card — 1D intraday (engine 1m candles, orange area + volume
- * bars) and 1M/3M/1Y daily views (ComposedChart: close area + thin volume
- * bars). Refetches on range/symbol change; OHLC tooltip.
+ * bars) and 1M/3M/1Y daily views as true OHLC candlesticks (wick + body
+ * range bars) with a toggleable SMA20 overlay, adaptive candle geometry and
+ * client-side CSV export. Refetches on range/symbol change; OHLC tooltip.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -15,14 +16,16 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
+  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
+import { Download, LineChart as LineChartIcon, ChartCandlestick } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChartCandlestick } from 'lucide-react';
+import { smaSeries } from '@/lib/market/indicators';
 import { fmtK, fmtNum, fmtTime } from '@/lib/market/format';
 import type { Candle, CandleInterval } from '@/lib/market/types';
 
@@ -37,6 +40,10 @@ interface ChartPoint {
   l: number;
   v: number;
   up: boolean;
+  /** Range-bar payloads for recharts candle rendering. */
+  wick: [number, number];
+  body: [number, number];
+  sma20: number | null;
 }
 
 const RANGE_LIMITS: Record<Exclude<Range, '1D'>, number> = {
@@ -123,6 +130,7 @@ const AXIS_TICK = { fontSize: 10, fill: '#71717a' } as const;
 
 export function PriceChart({ symbol }: { symbol: string }) {
   const [range, setRange] = useState<Range>('1D');
+  const [showMa, setShowMa] = useState(true);
   const [candles, setCandles] = useState<Candle[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -163,7 +171,9 @@ export function PriceChart({ symbol }: { symbol: string }) {
 
   const points: ChartPoint[] = useMemo(() => {
     if (!candles) return [];
-    return candles.map((c) => ({
+    const closes = candles.map((c) => c.c);
+    const ma = smaSeries(closes, 20);
+    return candles.map((c, i) => ({
       t: c.t,
       label: isDaily ? dayLabel(c.t, range === '1Y') : timeLabel(c.t),
       close: c.c,
@@ -172,8 +182,36 @@ export function PriceChart({ symbol }: { symbol: string }) {
       l: c.l,
       v: c.v,
       up: c.c >= c.o,
+      wick: [c.l, c.h] as [number, number],
+      body: [Math.min(c.o, c.c), Math.max(c.o, c.c)] as [number, number],
+      sma20: ma[i],
     }));
   }, [candles, isDaily, range]);
+
+  // Candle geometry adapts to series density so 1Y never overlaps.
+  const candleBody = points.length > 150 ? 2 : points.length > 60 ? 4 : 8;
+  const candleWick = Math.max(1, candleBody - 2);
+
+  /** Client-side CSV export of the currently displayed candles. */
+  const exportCsv = useCallback(() => {
+    if (points.length === 0) return;
+    const header = 'date,open,high,low,close,volume';
+    const rows = points.map(
+      (p) =>
+        `${new Date(p.t).toISOString()},${p.o},${p.h},${p.l},${p.close},${Math.round(p.v)}`
+    );
+    const blob = new Blob([[header, ...rows].join('\n')], {
+      type: 'text/csv;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${symbol}_${range.toLowerCase()}_candles.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [points, symbol, range]);
 
   const priceDomain = useMemo<[number, number] | ['auto', 'auto']>(() => {
     if (points.length === 0) return ['auto', 'auto'];
@@ -197,22 +235,50 @@ export function PriceChart({ symbol }: { symbol: string }) {
           <ChartCandlestick className="h-4 w-4 text-orange-500" aria-hidden="true" />
           <h3 className="text-sm font-semibold text-zinc-200">Price Chart</h3>
           <span className="rounded bg-zinc-800 px-1.5 py-px text-[10px] font-medium uppercase tracking-wider text-zinc-400">
-            {range === '1D' ? '1m candles' : 'daily candles'}
+            {range === '1D' ? '1m candles' : 'OHLC candles'}
           </span>
         </div>
-        <Tabs value={range} onValueChange={(v) => setRange(v as Range)} className="gap-0">
-          <TabsList className="h-7 bg-zinc-950/80">
-            {(['1D', '1M', '3M', '1Y'] as Range[]).map((r) => (
-              <TabsTrigger
-                key={r}
-                value={r}
-                className="h-6 min-w-9 px-2 font-mono text-[11px] data-[state=active]:bg-orange-500/15 data-[state=active]:text-orange-400"
-              >
-                {r}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <div className="flex items-center gap-1.5">
+          {isDaily && (
+            <button
+              type="button"
+              onClick={() => setShowMa((v) => !v)}
+              aria-pressed={showMa}
+              aria-label="Toggle 20-period moving average overlay"
+              className={`flex h-7 items-center gap-1 rounded-md border px-2 font-mono text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-500 ${
+                showMa
+                  ? 'border-amber-500/50 bg-amber-500/15 text-amber-400'
+                  : 'border-zinc-800 bg-zinc-950/60 text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <LineChartIcon className="h-3 w-3" aria-hidden="true" />
+              MA20
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={exportCsv}
+            disabled={loading || error || points.length === 0}
+            aria-label={`Export ${range} candles as CSV`}
+            className="flex h-7 items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950/60 px-2 font-mono text-[11px] text-zinc-500 transition-colors hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Download className="h-3 w-3" aria-hidden="true" />
+            CSV
+          </button>
+          <Tabs value={range} onValueChange={(v) => setRange(v as Range)} className="gap-0">
+            <TabsList className="h-7 bg-zinc-950/80">
+              {(['1D', '1M', '3M', '1Y'] as Range[]).map((r) => (
+                <TabsTrigger
+                  key={r}
+                  value={r}
+                  className="h-6 min-w-9 px-2 font-mono text-[11px] data-[state=active]:bg-orange-500/15 data-[state=active]:text-orange-400"
+                >
+                  {r}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
       <div className="p-3 pr-4 pt-4">
@@ -237,13 +303,7 @@ export function PriceChart({ symbol }: { symbol: string }) {
           </div>
         ) : isDaily ? (
           <ResponsiveContainer width="100%" height={300}>
-            <ComposedChart data={points} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
-              <defs>
-                <linearGradient id="dailyPriceFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#f97316" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="#f97316" stopOpacity={0} />
-                </linearGradient>
-              </defs>
+            <ComposedChart data={points} margin={{ top: 4, right: 4, bottom: 0, left: 4 }} barGap={0}>
               <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="label"
@@ -268,20 +328,46 @@ export function PriceChart({ symbol }: { symbol: string }) {
                 content={<PriceTooltip isDaily />}
                 cursor={{ stroke: '#f97316', strokeOpacity: 0.3 }}
               />
+              {/* Volume (behind price action) */}
               <Bar yAxisId="vol" dataKey="v" barSize={3} isAnimationActive={false}>
                 {points.map((p, i) => (
                   <Cell key={i} fill={p.up ? '#34d39966' : '#fb718566'} />
                 ))}
               </Bar>
-              <Area
+              {/* OHLC candle: thin wick bar behind a wider body bar */}
+              <Bar
                 yAxisId="price"
-                type="monotone"
-                dataKey="close"
-                stroke="#f97316"
-                strokeWidth={1.8}
-                fill="url(#dailyPriceFill)"
+                dataKey="wick"
+                barSize={candleWick}
                 isAnimationActive={false}
-              />
+                fillOpacity={0.55}
+              >
+                {points.map((p, i) => (
+                  <Cell key={i} fill={p.up ? '#34d399' : '#fb7185'} />
+                ))}
+              </Bar>
+              <Bar
+                yAxisId="price"
+                dataKey="body"
+                barSize={candleBody}
+                isAnimationActive={false}
+              >
+                {points.map((p, i) => (
+                  <Cell key={i} fill={p.up ? '#34d399' : '#fb7185'} />
+                ))}
+              </Bar>
+              {showMa && (
+                <Line
+                  yAxisId="price"
+                  type="monotone"
+                  dataKey="sma20"
+                  stroke="#fbbf24"
+                  strokeWidth={1.4}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+              )}
             </ComposedChart>
           </ResponsiveContainer>
         ) : (

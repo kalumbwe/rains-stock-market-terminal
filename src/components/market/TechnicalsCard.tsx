@@ -1,8 +1,9 @@
 'use client';
 
 /**
- * Technicals card — SMA20 / SMA50 / RSI(14) computed client-side from
- * daily closes (GET /api/stocks/[sym]/candles?interval=1d) with a
+ * Technicals card — SMA20 / SMA50 / RSI(14) plus risk metrics (annualised
+ * volatility, max drawdown, 20d average volume) computed client-side from
+ * daily candles (GET /api/stocks/[sym]/candles?interval=1d) with a
  * composite signal badge.
  */
 
@@ -10,14 +11,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Gauge } from 'lucide-react';
-import { rsi, signalFrom, sma } from '@/lib/market/indicators';
-import { fmtK } from '@/lib/market/format';
+import {
+  annualizedVolatility,
+  maxDrawdown,
+  rsi,
+  signalFrom,
+  sma,
+} from '@/lib/market/indicators';
+import { fmtK, fmtNum } from '@/lib/market/format';
 import type { Candle } from '@/lib/market/types';
 
 const DAILY_LIMIT = 130; // enough history for SMA50 + RSI warm-up
 
 export function TechnicalsCard({ symbol }: { symbol: string }) {
-  const [closes, setCloses] = useState<number[] | null>(null);
+  const [candles, setCandles] = useState<Candle[] | null>(null);
   const [error, setError] = useState(false);
   const aliveRef = useRef(true);
 
@@ -30,11 +37,11 @@ export function TechnicalsCard({ symbol }: { symbol: string }) {
       );
       if (!res.ok) throw new Error(`candles ${res.status}`);
       const data = (await res.json()) as { candles: Candle[] };
-      if (aliveRef.current) setCloses((data.candles ?? []).map((c) => c.c));
+      if (aliveRef.current) setCandles(data.candles ?? []);
     } catch {
       if (aliveRef.current) {
         setError(true);
-        setCloses(null);
+        setCandles(null);
       }
     }
   }, [symbol]);
@@ -48,12 +55,24 @@ export function TechnicalsCard({ symbol }: { symbol: string }) {
   }, [fetchData]);
 
   const technicals = useMemo(() => {
-    if (!closes || closes.length < 15) return null;
+    if (!candles || candles.length < 15) return null;
+    const closes = candles.map((c) => c.c);
     const sma20 = sma(closes, 20);
     const sma50 = sma(closes, 50);
     const rsi14 = rsi(closes, 14);
-    return { sma20, sma50, rsi14, signal: signalFrom(sma20, sma50, rsi14) };
-  }, [closes]);
+    return {
+      sma20,
+      sma50,
+      rsi14,
+      signal: signalFrom(sma20, sma50, rsi14),
+      annVol: annualizedVolatility(closes),
+      mdd: maxDrawdown(closes),
+      avgVol20:
+        candles.length >= 5
+          ? candles.slice(-20).reduce((a, c) => a + c.v, 0) / Math.min(20, candles.length)
+          : null,
+    };
+  }, [candles]);
 
   const signalBadge =
     technicals?.signal === 'BULLISH'
@@ -121,6 +140,38 @@ export function TechnicalsCard({ symbol }: { symbol: string }) {
                 }`}
               >
                 {technicals.rsi14 !== null ? technicals.rsi14.toFixed(1) : '—'}
+              </p>
+            </div>
+            <div className="rounded-lg bg-zinc-950/60 px-2.5 py-2 ring-1 ring-zinc-800">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                Ann. Vol
+              </p>
+              <p
+                className={`font-mono text-sm font-semibold tabular-nums ${
+                  technicals.annVol !== null && technicals.annVol > 35
+                    ? 'text-rose-400'
+                    : technicals.annVol !== null && technicals.annVol < 20
+                      ? 'text-emerald-400'
+                      : 'text-zinc-100'
+                }`}
+              >
+                {technicals.annVol !== null ? `${technicals.annVol.toFixed(1)}%` : '—'}
+              </p>
+            </div>
+            <div className="rounded-lg bg-zinc-950/60 px-2.5 py-2 ring-1 ring-zinc-800">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                Max DD
+              </p>
+              <p className="font-mono text-sm font-semibold tabular-nums text-rose-400">
+                {technicals.mdd !== null ? `−${technicals.mdd.toFixed(1)}%` : '—'}
+              </p>
+            </div>
+            <div className="rounded-lg bg-zinc-950/60 px-2.5 py-2 ring-1 ring-zinc-800">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                Avg Vol 20d
+              </p>
+              <p className="font-mono text-sm font-semibold tabular-nums text-zinc-100">
+                {technicals.avgVol20 !== null ? fmtNum(technicals.avgVol20) : '—'}
               </p>
             </div>
           </div>

@@ -172,6 +172,8 @@ const indexBase = meta.indexValue
 const TZ_OFFSET_MIN = meta.session.utcOffsetMinutes // Lusaka = UTC+2, no DST
 
 const bootMs = Date.now()
+/** Timestamp of the last engine tick — surfaced via /health for liveness checks. */
+let lastTickAt = 0
 let usdRate = meta.usdRate
 
 const caps = universe.stocks.map((s) => s.price * s.sharesOutstanding)
@@ -703,6 +705,7 @@ function tickVolume(s: StockState): number {
 }
 
 function tick(): void {
+  lastTickAt = Date.now()
   const now = Date.now()
   const bucket = Math.floor(now / 60_000) * 60_000
 
@@ -874,10 +877,13 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
     }
 
     if (path === '/health') {
+      const tickAgeMs = lastTickAt > 0 ? Date.now() - lastTickAt : null
       sendJson(res, 200, {
         ok: true,
         serverTime: new Date().toISOString(),
         uptimeSec: Math.floor((Date.now() - bootMs) / 1000),
+        tickAgeMs,
+        ticking: tickAgeMs === null ? false : tickAgeMs < 10_000,
       })
       return
     }

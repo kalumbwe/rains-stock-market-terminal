@@ -21,6 +21,7 @@ import type {
 export type FlashDir = 'up' | 'down';
 
 const PRICE_BUFFER_SIZE = 50; // ring buffer of last tick prices per symbol
+const USD_BUFFER_SIZE = 60; // ring buffer of USD/ZMW samples
 const INDEX_HISTORY_CAP = 720; // ~30min of ticks at 1.5s
 const FLASH_MS = 600;
 
@@ -39,6 +40,8 @@ export interface MarketStore {
   flash: Record<string, FlashDir>;
   /** Ring buffer (cap 50) of live prices per symbol — sparkline source. */
   priceHistory: Record<string, number[]>;
+  /** Ring buffer (cap 60) of USD/ZMW rate samples — header sparkline. */
+  usdHistory: number[];
 
   setConnected: (connected: boolean) => void;
   setSelected: (symbol: string) => void;
@@ -68,6 +71,12 @@ function pushPrice(buf: number[] | undefined, price: number): number[] {
   return next;
 }
 
+function pushUsd(buf: number[], rate: number): number[] {
+  const next = [...buf, rate];
+  if (next.length > USD_BUFFER_SIZE) next.splice(0, next.length - USD_BUFFER_SIZE);
+  return next;
+}
+
 function appendIndexHistory(history: IndexPoint[] | undefined, value: number): IndexPoint[] {
   const base = history ?? [];
   const next = [...base, { t: Date.now(), v: value }];
@@ -86,6 +95,7 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
   selectedSymbol: 'ZANACO',
   flash: {},
   priceHistory: {},
+  usdHistory: [],
 
   setConnected: (connected) => set({ connected }),
 
@@ -113,6 +123,9 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
         state.index?.history && state.index.history.length > 0
           ? state.index.history
           : snap.index.history ?? [];
+      const usdHistory = state.usdHistory.length > 0
+        ? state.usdHistory
+        : pushUsd(state.usdHistory, snap.usdRate);
       return {
         session: snap.session,
         usdRate: snap.usdRate,
@@ -120,6 +133,7 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
         stocks,
         stockOrder: order,
         priceHistory,
+        usdHistory,
       };
     });
   },
@@ -177,6 +191,7 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
 
       return {
         usdRate: tick.usdRate,
+        usdHistory: pushUsd(state.usdHistory, tick.usdRate),
         index: state.index
           ? {
               ...state.index,
@@ -207,3 +222,8 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
       return { flash };
     }),
 }));
+
+// Dev/debug handle — lets browser QA inspect live store state.
+if (typeof window !== 'undefined') {
+  (window as unknown as { __luseStore: typeof useMarketStore }).__luseStore = useMarketStore;
+}

@@ -27,6 +27,7 @@ import { useMarketSocket } from '@/hooks/use-market-socket';
 import { useMarketBootstrap } from '@/hooks/use-market-bootstrap';
 import { usePortfolio } from '@/hooks/use-portfolio';
 import { useAlertEngine } from '@/hooks/use-alert-engine';
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useMarketStore } from '@/lib/market/store';
 import { Header } from './Header';
 import { TickerTape } from './TickerTape';
@@ -77,6 +78,9 @@ export function TerminalApp() {
   const openTrade = useCallback((symbol: string, side: TradeSide) => {
     setTrade({ open: true, symbol, side });
   }, []);
+
+  // Global keyboard shortcuts: / search · ↑↓ navigate · B buy · S sell.
+  useKeyboardShortcuts(openTrade);
 
   const handleTradeSubmit = useCallback(
     async (args: { symbol: string; side: TradeSide; quantity: number }) =>

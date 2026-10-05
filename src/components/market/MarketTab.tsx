@@ -10,8 +10,9 @@ import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { Area, AreaChart, ResponsiveContainer, YAxis } from 'recharts';
-import { Flame, TrendingDown, TrendingUp } from 'lucide-react';
+import { Flame, Newspaper, TrendingDown, TrendingUp } from 'lucide-react';
 import { useMarketStore } from '@/lib/market/store';
+import { newsSentiment } from '@/lib/market/indicators';
 import { fmtBig, fmtIndex, fmtNum, fmtPct } from '@/lib/market/format';
 import type { IndexPoint, Quote } from '@/lib/market/types';
 
@@ -65,6 +66,13 @@ export function MarketTab() {
   const active = useMemo(
     () => [...quotes].sort((a, b) => b.volume - a.volume).slice(0, 5),
     [quotes]
+  );
+
+  // Impact-weighted news sentiment over the latest 25 headlines.
+  const news = useMarketStore((s) => s.news);
+  const sentiment = useMemo(
+    () => newsSentiment(news.slice(0, 25)),
+    [news]
   );
 
   const idxPoints = useMemo(
@@ -142,6 +150,41 @@ export function MarketTab() {
             <p className="font-mono text-sm font-bold tabular-nums text-rose-400">{breadth.dec}</p>
             <p className="text-[10px] uppercase tracking-wider text-zinc-500">Decliners</p>
           </div>
+        </div>
+      </section>
+
+      {/* News sentiment gauge */}
+      <section aria-label="News sentiment" className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+            <Newspaper className="h-3 w-3" aria-hidden="true" />
+            News Sentiment
+          </p>
+          <p
+            className={`text-[10px] font-bold uppercase tracking-wider ${
+              sentiment.label === 'BULLISH'
+                ? 'text-emerald-400'
+                : sentiment.label === 'BEARISH'
+                  ? 'text-rose-400'
+                  : 'text-zinc-400'
+            }`}
+          >
+            {sentiment.label}
+          </p>
+        </div>
+        {/* Meter: rose (bearish) ← → emerald (bullish) with score marker */}
+        <div className="relative h-2.5 w-full overflow-visible rounded-full bg-gradient-to-r from-rose-500/70 via-zinc-700 to-emerald-500/70" aria-hidden="true">
+          <div
+            className="absolute top-1/2 h-3.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-sm bg-zinc-100 ring-2 ring-zinc-950 transition-[left] duration-500"
+            style={{ left: `${50 + Math.max(-50, Math.min(50, sentiment.score)) / 2}%` }}
+          />
+        </div>
+        <div className="mt-2 flex items-center justify-between font-mono text-[10px] tabular-nums">
+          <span className="text-rose-400">{sentiment.negative} NEG</span>
+          <span className="font-semibold text-zinc-300">
+            {sentiment.score > 0 ? '+' : ''}{sentiment.score}
+          </span>
+          <span className="text-emerald-400">{sentiment.positive} POS</span>
         </div>
       </section>
 

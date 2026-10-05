@@ -112,3 +112,24 @@ Stage Summary:
 - App COMPLETE and verified: real-time LuSE terminal (17 real companies, LASI index, USD/ZMW) with socket.io live ticks, REST fallback, charts (1D/1M/3M/1Y), technicals (SMA20/50, RSI14, signal), order book depth, cap-weighted heatmap, breadth, movers, watchlist, alerts engine, paper-trading portfolio (K100k, fees 0.15% min K5 + 0.05% levy), live+seeded news.
 - Runbook: dev server `bun run dev` (3000); engine `cd mini-services/market-engine && bun run dev` (3003, MUST be running for live data); preview via Caddy :81.
 - Known minor: Zanaco/StanChart tickers use commonly-cited LuSE abbreviations; brand text truncates on very small phones; light theme not implemented (dark terminal by design).
+
+---
+Task ID: 5 (cron webDevReview round 1)
+Agent: main coordinator (scheduled review)
+Task: Status assessment, QA via agent-browser, bug fixes, feature development round.
+
+Work Log:
+- Assessed services: Next :3000 OK, engine :3003 OK (boot 17:38). QA via gateway :81: zero hydration/page errors, footer overlap 0, 17 rows, tabs verified (SideRail healthy — earlier "empty News tab" was a synthetic-click artifact, NOT a product bug).
+- CRITICAL BUG FOUND & FIXED (infra): engine tick loop was silently dead since the 17:38 boot — `bun --hot` drops setInterval timers on module re-eval (zombie process: REST/socket alive, no ticks; a mid-write parse error in the log confirmed the hot-reload race). Fix: full process restart via pkill + setsid nohup. Added `tickAgeMs` + `ticking` fields to GET /health for instant liveness detection. RULE: never trust bun --hot for the engine — restart it fully after edits; check /health `ticking:true`.
+- Features shipped this round:
+  1. PriceChart: true OHLC candlesticks for 1M/3M/1Y (wick+body recharts range bars, density-adaptive bar geometry), amber SMA20 overlay with toggle, CSV export button (client-side blob, symbol_range_candles.csv).
+  2. TechnicalsCard: +3 risk metrics — annualised volatility (%), max drawdown (%), 20d avg volume (color-coded vol).
+  3. MarketTab: impact-weighted NEWS SENTIMENT gauge (score −100..+100, BULLISH/BEARISH/NEUTRAL label, POS/NEG counts, animated meter marker).
+  4. Header: USD/ZMW live sparkline (new usdHistory ring buffer in store), LASI chip green/red flash on index move, live document title "LASI … · LuSE Pulse" (1s throttle), mobile brand no longer truncates (shrink-0 + responsive subtitle/badge).
+  5. Keyboard shortcuts (new hook use-keyboard-shortcuts): `/` focus search, ↑/↓ or j/k cycle symbols, B/S open buy/sell dialog for selected symbol — all browser-verified; kbd hint chips added to footer (lg+ only).
+- Verification: lint 0 errors/warnings; candles+MA20+sentiment+risk metrics+sparkline+title all confirmed via agent-browser screenshots/evals; trades/alerts/watchlist unaffected.
+
+Stage Summary:
+- Engine /health now exposes tickAgeMs/ticking — future reviews MUST check `ticking:true` before diagnosing "frozen UI".
+- Debug aid: `window.__luseStore` exposed client-side for QA store inspection (guarded, keep).
+- Remaining ideas for next rounds: fullscreen chart modal, sector performance bars, dividend calendar, correlation matrix, PWA manifest, engine tick persistence to SQLite for restart continuity, i18n (EN/Bembe/Lozi), NextAuth watchlist sync.
