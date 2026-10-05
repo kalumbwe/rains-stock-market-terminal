@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
@@ -16,24 +16,38 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "LuSE Pulse — Zambia Market Terminal",
   description:
-    "Real-time simulated LuSE trading terminal: live Zambian equities quotes, LASI index, charts, paper trading, alerts and market news.",
-  keywords: ["Z.ai", "Next.js", "TypeScript", "Tailwind CSS", "shadcn/ui", "AI development", "React"],
+    "Real-time simulated LuSE trading terminal: live Zambian equities quotes, LASI index, charts, technicals, screener, paper trading, alerts and market news.",
+  keywords: ["LuSE", "Zambia", "stock market", "LASI", "trading terminal", "market analysis"],
   authors: [{ name: "Z.ai Team" }],
+  manifest: "/manifest.webmanifest",
+  applicationName: "LuSE Pulse",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "LuSE Pulse",
+  },
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/icons/icon-192.png",
   },
   openGraph: {
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
-    url: "https://chat.z.ai",
-    siteName: "Z.ai",
+    title: "LuSE Pulse — Zambia Market Terminal",
+    description:
+      "Real-time Zambia LuSE market analysis: live quotes, LASI index, charts, screener and paper trading.",
+    siteName: "LuSE Pulse",
     type: "website",
   },
-  twitter: {
-    card: "summary_large_image",
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
-  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0a0a0b",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

@@ -174,6 +174,6 @@ export async function getEngine<T>(path: string): Promise<T> {
   try {
     return (await res.json()) as T
   } catch (err) {
-    throw new EngineError(`Engine returned invalid JSON for ${path}`, path, err)
+    throw new EngineError(`Engine returned invalid JSON for ${path}`, path, undefined, err)
   }
 }

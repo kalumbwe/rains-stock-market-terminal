@@ -41,7 +41,24 @@ export function StockDetail({ symbol, onTrade }: StockDetailProps) {
       const data = (await res.json()) as StockDetailResponse;
       if (aliveRef.current) setProfile(data.profile);
     } catch {
-      if (aliveRef.current) setProfileError(true);
+      if (!aliveRef.current) return;
+      // One delayed retry — a transient dev-server/engine hiccup should not
+      // permanently hide the 52W range + fundamentals for this session.
+      setTimeout(() => {
+        if (!aliveRef.current) return;
+        void (async () => {
+          try {
+            const res = await fetch(`/api/stocks/${encodeURIComponent(symbol)}`, {
+              cache: 'no-store',
+            });
+            if (!res.ok) throw new Error(`detail retry ${res.status}`);
+            const data = (await res.json()) as StockDetailResponse;
+            if (aliveRef.current) setProfile(data.profile);
+          } catch {
+            if (aliveRef.current) setProfileError(true);
+          }
+        })();
+      }, 5000);
     }
   }, [symbol]);
 
@@ -76,8 +93,15 @@ export function StockDetail({ symbol, onTrade }: StockDetailProps) {
       {/* ── Header card ── */}
       <section
         aria-label={`${symbol} overview`}
-        className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4"
+        className="relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 p-4"
       >
+        {/* Ambient price-direction glow (pure decoration) */}
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full blur-3xl ${
+            pct >= 0 ? 'bg-emerald-500/[0.07]' : 'bg-rose-500/[0.07]'
+          }`}
+        />
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -98,6 +122,12 @@ export function StockDetail({ symbol, onTrade }: StockDetailProps) {
               <p className="mt-0.5 flex items-center gap-1 text-[11px] text-zinc-500">
                 <ExternalLink className="h-3 w-3" aria-hidden="true" />
                 {profile.website}
+              </p>
+            ) : null}
+            {profile && profile.dividendYield > 0 ? (
+              <p className="mt-1 inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-emerald-400" aria-label={`Dividend yield ${profile.dividendYield} percent`}>
+                <span aria-hidden="true">◆</span>
+                {profile.dividendYield.toFixed(1)}% div yld
               </p>
             ) : null}
           </div>
@@ -144,10 +174,13 @@ export function StockDetail({ symbol, onTrade }: StockDetailProps) {
           ) : null}
         </div>
 
-        {/* Day range bar */}
+        {/* Day range bar with open-price marker */}
         <div className="mt-4" aria-label="Day range">
           <div className="flex justify-between font-mono text-[10px] tabular-nums text-zinc-500">
             <span>Day Low {quote ? fmtK(rangeLow) : '—'}</span>
+            {quote && rangeHigh > rangeLow && quote.dayOpen > rangeLow && quote.dayOpen < rangeHigh ? (
+              <span className="text-zinc-600">Open {fmtK(quote.dayOpen)}</span>
+            ) : null}
             <span>Day High {quote ? fmtK(rangeHigh) : '—'}</span>
           </div>
           <div className="relative mt-1.5 h-1.5 overflow-hidden rounded-full bg-zinc-800">
@@ -156,8 +189,18 @@ export function StockDetail({ symbol, onTrade }: StockDetailProps) {
               style={{ width: `${markerPct}%` }}
               aria-hidden="true"
             />
+            {/* Open marker: hollow tick */}
+            {quote && rangeHigh > rangeLow ? (
+              <div
+                className="absolute top-1/2 h-2 w-0.5 -translate-y-1/2 rounded-full bg-zinc-400/80"
+                style={{
+                  left: `${Math.min(100, Math.max(0, ((quote.dayOpen - rangeLow) / (rangeHigh - rangeLow)) * 100))}%`,
+                }}
+                aria-hidden="true"
+              />
+            ) : null}
             <div
-              className="absolute top-1/2 h-3 w-1 -translate-y-1/2 rounded-full bg-orange-400 ring-2 ring-zinc-950"
+              className="absolute top-1/2 h-3 w-1 -translate-y-1/2 rounded-full bg-orange-400 ring-2 ring-zinc-950 transition-[left] duration-500"
               style={{ left: `calc(${markerPct}% - 2px)` }}
               aria-hidden="true"
             />

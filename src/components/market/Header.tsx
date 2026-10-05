@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Activity, DollarSign, RadioTower } from 'lucide-react';
+import { Activity, DollarSign, RadioTower, TableProperties } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMarketStore } from '@/lib/market/store';
@@ -19,7 +19,7 @@ function changeColor(v: number): string {
   return 'text-zinc-400';
 }
 
-export function Header() {
+export function Header({ onOpenScreener }: { onOpenScreener?: () => void }) {
   const connected = useMarketStore((s) => s.connected);
   const session = useMarketStore((s) => s.session);
   const index = useMarketStore((s) => s.index);
@@ -135,6 +135,22 @@ export function Header() {
         </div>
 
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
+          {/* Screener trigger */}
+          {onOpenScreener ? (
+            <button
+              type="button"
+              onClick={onOpenScreener}
+              aria-label="Open market screener"
+              title="Market screener — all counters, fundamentals & sorting"
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 text-zinc-400 transition-colors hover:border-orange-500/40 hover:text-orange-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500"
+            >
+              <TableProperties className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="hidden text-[10px] font-semibold uppercase tracking-wider md:inline">
+                Screener
+              </span>
+            </button>
+          ) : null}
+
           {/* USD/ZMW + trend sparkline */}
           <div
             className="hidden items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 sm:flex"

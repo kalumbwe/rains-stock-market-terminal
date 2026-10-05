@@ -54,6 +54,13 @@ export function TickerTape() {
       className="tape-container tape-hover overflow-hidden border-b border-zinc-800 bg-zinc-950"
       role="marquee"
       aria-label="Live market ticker tape"
+      style={{
+        // Edge fade masks so items dissolve at both ends of the tape.
+        maskImage:
+          'linear-gradient(to right, transparent, black 4%, black 96%, transparent)',
+        WebkitMaskImage:
+          'linear-gradient(to right, transparent, black 4%, black 96%, transparent)',
+      }}
     >
       <div className="animate-tape flex w-max items-center py-0">
         {strip.map((item, idx) =>

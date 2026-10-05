@@ -22,9 +22,9 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { Download, LineChart as LineChartIcon, ChartCandlestick } from 'lucide-react';
+import { Download, LineChart as LineChartIcon, ChartCandlestick, Maximize2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Skeleton } from '@/components/ui/skeleton';
 import { smaSeries } from '@/lib/market/indicators';
 import { fmtK, fmtNum, fmtTime } from '@/lib/market/format';
 import type { Candle, CandleInterval } from '@/lib/market/types';
@@ -128,15 +128,27 @@ const UP_FILL = '#34d39999';
 const DOWN_FILL = '#fb718599';
 const AXIS_TICK = { fontSize: 10, fill: '#71717a' } as const;
 
-export function PriceChart({ symbol }: { symbol: string }) {
+export function PriceChart({
+  symbol,
+  variant = 'default',
+}: {
+  symbol: string;
+  /** default → card heights · fullscreen → tall chart inside the modal. */
+  variant?: 'default' | 'fullscreen';
+}) {
   const [range, setRange] = useState<Range>('1D');
   const [showMa, setShowMa] = useState(true);
   const [candles, setCandles] = useState<Candle[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const aliveRef = useRef(true);
 
   const isDaily = range !== '1D';
+  const fullscreen = variant === 'fullscreen';
+  const dailyH = fullscreen ? 520 : 300;
+  const intradayH = fullscreen ? 430 : 236;
+  const volumeH = fullscreen ? 100 : 64;
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -265,6 +277,17 @@ export function PriceChart({ symbol }: { symbol: string }) {
             <Download className="h-3 w-3" aria-hidden="true" />
             CSV
           </button>
+          {!fullscreen && (
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              aria-label="Expand chart fullscreen"
+              className="flex h-7 items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950/60 px-2 font-mono text-[11px] text-zinc-500 transition-colors hover:text-orange-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500"
+            >
+              <Maximize2 className="h-3 w-3" aria-hidden="true" />
+              <span className="hidden sm:inline">Full</span>
+            </button>
+          )}
           <Tabs value={range} onValueChange={(v) => setRange(v as Range)} className="gap-0">
             <TabsList className="h-7 bg-zinc-950/80">
               {(['1D', '1M', '3M', '1Y'] as Range[]).map((r) => (
@@ -281,11 +304,15 @@ export function PriceChart({ symbol }: { symbol: string }) {
         </div>
       </div>
 
-      <div className="p-3 pr-4 pt-4">
+      <div className={fullscreen ? 'p-4 pr-5 pt-4' : 'p-3 pr-4 pt-4'}>
         {loading ? (
-          <Skeleton className="h-[300px] w-full bg-zinc-800/60" />
+          <div
+            className="w-full animate-pulse rounded-md bg-zinc-800/60"
+            style={{ height: isDaily ? dailyH : intradayH + volumeH }}
+            aria-hidden="true"
+          />
         ) : error ? (
-          <div className="flex h-[300px] flex-col items-center justify-center gap-2 text-zinc-500">
+          <div className={`flex ${fullscreen ? 'h-[600px]' : 'h-[300px]'} flex-col items-center justify-center gap-2 text-zinc-500`}>
             <ChartCandlestick className="h-6 w-6" aria-hidden="true" />
             <p className="text-sm">Chart data unavailable right now.</p>
             <button
@@ -297,12 +324,12 @@ export function PriceChart({ symbol }: { symbol: string }) {
             </button>
           </div>
         ) : points.length < 2 ? (
-          <div className="flex h-[300px] flex-col items-center justify-center gap-2 text-zinc-500">
+          <div className={`flex ${fullscreen ? 'h-[600px]' : 'h-[300px]'} flex-col items-center justify-center gap-2 text-zinc-500`}>
             <ChartCandlestick className="h-6 w-6" aria-hidden="true" />
             <p className="text-sm">No candles yet for this range.</p>
           </div>
         ) : isDaily ? (
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={dailyH}>
             <ComposedChart data={points} margin={{ top: 4, right: 4, bottom: 0, left: 4 }} barGap={0}>
               <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
               <XAxis
@@ -372,7 +399,7 @@ export function PriceChart({ symbol }: { symbol: string }) {
           </ResponsiveContainer>
         ) : (
           <>
-            <ResponsiveContainer width="100%" height={236}>
+            <ResponsiveContainer width="100%" height={intradayH}>
               <AreaChart data={points} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
                 <defs>
                   <linearGradient id="intradayPriceFill" x1="0" y1="0" x2="0" y2="1">
@@ -412,7 +439,7 @@ export function PriceChart({ symbol }: { symbol: string }) {
                 />
               </AreaChart>
             </ResponsiveContainer>
-            <ResponsiveContainer width="100%" height={64}>
+            <ResponsiveContainer width="100%" height={volumeH}>
               <BarChart data={points} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
                 <XAxis dataKey="label" hide />
                 <YAxis hide domain={[0, (max: number) => max * 1.15 || 1]} />
@@ -420,7 +447,7 @@ export function PriceChart({ symbol }: { symbol: string }) {
                   content={<VolumeTooltip />}
                   cursor={{ fill: '#27272a55' }}
                 />
-                <Bar dataKey="v" barSize={6} radius={[1, 1, 0, 0]} isAnimationActive={false}>
+                <Bar dataKey="v" barSize={fullscreen ? 9 : 6} radius={[1, 1, 0, 0]} isAnimationActive={false}>
                   {points.map((p, i) => (
                     <Cell key={i} fill={p.up ? UP_FILL : DOWN_FILL} />
                   ))}
@@ -430,6 +457,26 @@ export function PriceChart({ symbol }: { symbol: string }) {
           </>
         )}
       </div>
+
+      {/* Fullscreen modal — independent data instance, taller rendering. */}
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent className="max-w-6xl border-zinc-800 bg-zinc-950 p-0 sm:rounded-xl">
+          <DialogTitle className="sr-only">{symbol} price chart fullscreen</DialogTitle>
+          <DialogDescription className="sr-only">
+            Expanded view of the {symbol} price chart
+          </DialogDescription>
+          <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <ChartCandlestick className="h-4 w-4 text-orange-500" aria-hidden="true" />
+              <p className="text-sm font-bold tracking-wide text-zinc-100">{symbol}</p>
+              <span className="rounded bg-zinc-800 px-1.5 py-px text-[10px] font-medium uppercase tracking-wider text-zinc-400">
+                {range} · full view
+              </span>
+            </div>
+          </div>
+          <PriceChart symbol={symbol} variant="fullscreen" />
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

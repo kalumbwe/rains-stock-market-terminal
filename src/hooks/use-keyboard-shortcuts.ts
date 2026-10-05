@@ -5,6 +5,7 @@
  *   /            focus stock search
  *   ↑ / ↓ (j/k)  move selection through the stock list
  *   B / S        open the trade dialog (buy / sell) for the selected symbol
+ *   P            open the market screener
  * Ignores keystrokes while typing in inputs, textareas, selects, popovers
  * or dialogs.
  */
@@ -13,7 +14,8 @@ import { useEffect } from 'react';
 import { useMarketStore } from '@/lib/market/store';
 
 export function useKeyboardShortcuts(
-  onTrade: (symbol: string, side: 'BUY' | 'SELL') => void
+  onTrade: (symbol: string, side: 'BUY' | 'SELL') => void,
+  onScreener?: () => void
 ) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -48,10 +50,13 @@ export function useKeyboardShortcuts(
         onTrade(store.selectedSymbol, 'BUY');
       } else if (e.key.toLowerCase() === 's') {
         onTrade(store.selectedSymbol, 'SELL');
+      } else if (e.key.toLowerCase() === 'p' && onScreener) {
+        e.preventDefault();
+        onScreener();
       }
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onTrade]);
+  }, [onTrade, onScreener]);
 }

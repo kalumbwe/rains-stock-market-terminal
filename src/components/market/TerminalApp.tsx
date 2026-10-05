@@ -38,6 +38,7 @@ import { MarketTab } from './MarketTab';
 import { PortfolioTab } from './PortfolioTab';
 import { AlertsTab } from './AlertsTab';
 import { NewsTab } from './NewsTab';
+import { ScreenerDialog } from './ScreenerDialog';
 import { TradeDialog, type TradeSide } from './TradeDialog';
 import { Footer } from './Footer';
 
@@ -75,12 +76,16 @@ export function TerminalApp() {
     side: 'BUY',
   });
 
+  // Market screener dialog
+  const [screenerOpen, setScreenerOpen] = useState(false);
+
   const openTrade = useCallback((symbol: string, side: TradeSide) => {
     setTrade({ open: true, symbol, side });
   }, []);
 
-  // Global keyboard shortcuts: / search · ↑↓ navigate · B buy · S sell.
-  useKeyboardShortcuts(openTrade);
+  // Global keyboard shortcuts: / search · ↑↓ navigate · B buy · S sell · P screener.
+  const openScreener = useCallback(() => setScreenerOpen(true), []);
+  useKeyboardShortcuts(openTrade, openScreener);
 
   const handleTradeSubmit = useCallback(
     async (args: { symbol: string; side: TradeSide; quantity: number }) =>
@@ -99,7 +104,7 @@ export function TerminalApp() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[#0a0a0b] text-zinc-100">
-      <Header />
+      <Header onOpenScreener={() => setScreenerOpen(true)} />
       <TickerTape />
 
       {/* Engine-down banner */}
@@ -224,6 +229,8 @@ export function TerminalApp() {
         positionQty={positionQty}
         onSubmit={handleTradeSubmit}
       />
+
+      <ScreenerDialog open={screenerOpen} onOpenChange={setScreenerOpen} />
     </div>
   );
 }

@@ -32,6 +32,8 @@ export function Footer() {
             buy
             <kbd className="rounded border border-zinc-800 bg-zinc-900 px-1 font-mono text-[10px] text-zinc-400">S</kbd>
             sell
+            <kbd className="rounded border border-zinc-800 bg-zinc-900 px-1 font-mono text-[10px] text-zinc-400">P</kbd>
+            screener
           </span>
         </div>
         <p className="flex items-center gap-1.5 leading-snug">

@@ -133,3 +133,30 @@ Stage Summary:
 - Engine /health now exposes tickAgeMs/ticking — future reviews MUST check `ticking:true` before diagnosing "frozen UI".
 - Debug aid: `window.__luseStore` exposed client-side for QA store inspection (guarded, keep).
 - Remaining ideas for next rounds: fullscreen chart modal, sector performance bars, dividend calendar, correlation matrix, PWA manifest, engine tick persistence to SQLite for restart continuity, i18n (EN/Bembe/Lozi), NextAuth watchlist sync.
+
+---
+Task ID: 6 (cron webDevReview round 2)
+Agent: main coordinator (scheduled review)
+Task: Status assessment, agent-browser QA, new analysis features + styling polish round.
+
+Work Log:
+- QA first: engine :3003 healthy (`ticking:true`), Next :3000 healthy via :81. Verified end-to-end with agent-browser: live ticks/title/tape, stock list, 1D chart, stats, technicals (SMA/RSI/ANN.VOL/MAX DD/AVG VOL), order book, portfolio BUY 100 ZANACO @K9.46 → SELL round-trip (cash verified server-side), alerts tab (2 triggered), news feed, mobile 390px. Zero console errors. NOTE: Radix TabsTrigger activates on POINTERDOWN — programmatic `el.click()` in evals does NOT switch tabs; dispatch full pointer event sequence (or use agent-browser click @ref) when scripting tab switches. Not a product bug.
+- CRITICAL INFRA INCIDENT: Next dev server (port 3000) died silently mid-session (connection refused; only engine alive). Restarted detached: `(setsid nohup bun run dev >> dev.log 2>&1 &)` from project root. RULE: if gateway :81 returns 502 / curl :3000 fails → check `ps aux | grep next`, restart with that command, then verify /api/health.
+- FIXED pre-existing tsc error: src/lib/market-engine.ts L177 passed `err` (unknown) into EngineError `status?: number` slot → now `undefined, err` (cause). `bunx tsc --noEmit` under src/ now 0 errors.
+- FIXED robustness: StockDetail profile fetch now retries once after 5s on failure (transient 500s during dev restarts permanently hid 52W range + div chip before).
+- NEW FEATURES (5):
+  1. Market Screener (ScreenerDialog): full sortable table of all 17 counters — price/chg%/volume/turnover/mkt cap/P/E/div yield/beta + 52W position bars, live quote overlay (breathes with tape), sector filter chips + text filter, row click selects symbol & closes. Backed by NEW REST route GET /api/screener (engine snapshot ⨯ Prisma fundamentals ⨯ dailyPrice groupBy 52w, single round-trip each) + src/lib/market/screener.ts (client fetch w/ 5-min promise cache + deterministic dividend calendar maths).
+  2. Correlation Matrix (screener dialog → "Correlation" tab): Pearson r of 66-day daily closes, 17×17 colour-coded grid (emerald=together, rose=apart), sticky row headers (click → open symbol), "tightest pair" highlight (found CHIL↔PZ r=0.86).
+  3. Sector Performance panel (MarketTab, useSectorStats hook): equal-weight avg day change per sector, centre-anchored animated bars, counter counts, click drills into sector's first counter.
+  4. Dividend Calendar panel (MarketTab): next 6 simulated ex-div dates from seeded yields (deterministic per-symbol schedule, 95d horizon), date tiles w/ ≤7d amber highlight, est. quarterly K/share from LIVE price, yield labels.
+  5. Fullscreen chart modal: "Full" button on PriceChart → Dialog with variant="fullscreen" PriceChart (520px daily / 430px+100px intraday), own range tabs + CSV.
+- STYLING POLISH: ticker-tape edge fade masks (mask-image gradient); heatmap tiles show orange glow ring + dot for selected symbol; StockDetail ambient price-direction glow + dividend-yield chip + day-open hollow marker on range bar + "Open K…" label; Most Active metric no longer wraps (dropped "shs"); footer kbd hint + "P" shortcut; header SCREENER button (icon-only on mobile).
+- PWA: public/manifest.webmanifest (standalone, #0a0a0b theme), generated icons (public/icon.svg → icons/icon-192.png + icon-512.png via headless-browser rasterise), layout metadata: manifest + appleWebApp + multi-size icons + viewport.themeColor + viewportFit cover.
+- Keyboard: added `P` → open screener (use-keyboard-shortcuts now takes onScreener callback; footer hint updated).
+- Verified: lint 0/0, tsc src 0 errors; screener (filter=Banking → [ZANACO, SCBL]; sort by Chg% works; row click → ZANACO in terminal + dialog closed), correlation tab renders, P shortcut opens screener, fullscreen 1D chart, dividend calendar (CHIL 59d ≈K0.62/sh…), sector bars, mobile 390px clean, profile-retry restores 52W. Zero page errors.
+
+Stage Summary:
+- App now has a real analysis layer: screener + correlation + sector aggregation + dividend calendar on top of the live terminal.
+- Runbook unchanged (Next :3000 auto/system, engine :3003 via setsid nohup, preview through Caddy :81) + dev-server restart command recorded above.
+- Remaining ideas (priority order): engine tick/session persistence to SQLite for restart continuity (engine re-seeds virtual session each boot today); intraday sparkline column in screener; price-history export incl. news; i18n (EN/Bembe/Lozi); NextAuth watchlist sync; light theme.
+- Known minor: screener dialog double header in fullscreen-chart modal (modal title + inner chart header) is intentional; correlation uses seeded daily history (illustrative).

@@ -15,6 +15,7 @@ import { useMarketStore } from '@/lib/market/store';
 import { newsSentiment } from '@/lib/market/indicators';
 import { fmtBig, fmtIndex, fmtNum, fmtPct } from '@/lib/market/format';
 import type { IndexPoint, Quote } from '@/lib/market/types';
+import { DividendCalendar, SectorPerformance } from './MarketExtras';
 
 const EMPTY_INDEX_HISTORY: IndexPoint[] = [];
 
@@ -30,6 +31,7 @@ function heatAlpha(pct: number): number {
 
 export function MarketTab() {
   const index = useMarketStore((s) => s.index);
+  const selectedSymbol = useMarketStore((s) => s.selectedSymbol);
   const indexHistory = useMarketStore(
     (s) => (s.index?.history ? s.index.history : EMPTY_INDEX_HISTORY)
   );
@@ -188,6 +190,9 @@ export function MarketTab() {
         </div>
       </section>
 
+      {/* Sector performance */}
+      <SectorPerformance />
+
       {/* Heatmap */}
       <section aria-label="Market capitalisation heatmap" className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
         <div className="mb-2 flex items-center gap-1.5">
@@ -205,18 +210,28 @@ export function MarketTab() {
                 : q.changePct < 0
                   ? `rgba(244, 63, 94, ${alpha})`
                   : 'rgba(113, 113, 122, 0.14)';
+            const isSelected = selectedSymbol === q.symbol;
             return (
               <motion.button
                 key={q.symbol}
                 type="button"
                 layout
                 onClick={() => setSelected(q.symbol)}
-                style={{ backgroundColor: bg, flexGrow: Math.max(0.4, q.marketCap / 5e9) }}
-                className="flex min-w-[86px] cursor-pointer flex-col items-start rounded-md border border-zinc-800 px-2 py-1.5 text-left transition-transform hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500"
-                aria-label={`${q.symbol}, market cap ${fmtBig(q.marketCap)}, ${fmtPct(q.changePct)}`}
+                style={{
+                  backgroundColor: bg,
+                  flexGrow: Math.max(0.4, q.marketCap / 5e9),
+                  boxShadow: isSelected
+                    ? '0 0 0 1.5px rgba(249,115,22,0.9), 0 0 12px rgba(249,115,22,0.25)'
+                    : undefined,
+                }}
+                className={`flex min-w-[86px] cursor-pointer flex-col items-start rounded-md border px-2 py-1.5 text-left transition-transform hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 ${
+                  isSelected ? 'border-orange-500/70' : 'border-zinc-800'
+                }`}
+                aria-label={`${q.symbol}, market cap ${fmtBig(q.marketCap)}, ${fmtPct(q.changePct)}${isSelected ? ', selected' : ''}`}
               >
-                <span className="text-[11px] font-bold tracking-wide text-zinc-100">
+                <span className="flex items-center gap-1 text-[11px] font-bold tracking-wide text-zinc-100">
                   {q.symbol}
+                  {isSelected && <span aria-hidden="true" className="h-1 w-1 rounded-full bg-orange-400" />}
                 </span>
                 <span className={`font-mono text-[11px] tabular-nums ${pctColorClass(q.changePct)}`}>
                   {fmtPct(q.changePct)}
@@ -249,11 +264,14 @@ export function MarketTab() {
           title="Most Active"
           icon={<Flame className="h-3.5 w-3.5 text-orange-500" aria-hidden="true" />}
           quotes={active}
-          metric={(q) => `${fmtNum(q.volume)} shs`}
+          metric={(q) => fmtNum(q.volume)}
           metricClass={() => 'text-zinc-300'}
           onSelect={setSelected}
         />
       </div>
+
+      {/* Upcoming simulated ex-dividend dates */}
+      <DividendCalendar />
     </div>
   );
 }
