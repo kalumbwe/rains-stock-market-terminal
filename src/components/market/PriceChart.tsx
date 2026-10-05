@@ -140,10 +140,13 @@ const AXIS_TICK = { fontSize: 10, fill: '#71717a' } as const;
 export function PriceChart({
   symbol,
   variant = 'default',
+  fiftyTwoWeek,
 }: {
   symbol: string;
   /** default → card heights · fullscreen → tall chart inside the modal. */
   variant?: 'default' | 'fullscreen';
+  /** 52-week extremes from the stock profile — dashed anchors on daily views. */
+  fiftyTwoWeek?: { high: number; low: number } | null;
 }) {
   const [range, setRange] = useState<Range>('1D');
   const [showMa, setShowMa] = useState(true);
@@ -263,6 +266,7 @@ export function PriceChart({
   return (
     <section
       aria-label={`${symbol} price chart`}
+      data-fiftytwo={fiftyTwoWeek ? `${fiftyTwoWeek.low}-${fiftyTwoWeek.high}` : 'none'}
       className="rounded-xl border border-zinc-800 bg-zinc-900/60"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-4 py-2.5">
@@ -434,6 +438,39 @@ export function PriceChart({
                   isAnimationActive={false}
                 />
               )}
+              {/* 52-week extremes (profile) — auto-discard when outside the view.
+                  NOTE: two direct conditionals, NOT a fragment — recharts does
+                  not traverse fragment children when collecting ReferenceLine. */}
+              {fiftyTwoWeek ? (
+                <ReferenceLine
+                  yAxisId="price"
+                  y={fiftyTwoWeek.high}
+                  stroke="#a1a1aa"
+                  strokeDasharray="2 5"
+                  strokeOpacity={0.75}
+                  label={{
+                    value: '52W H',
+                    position: 'insideBottomLeft',
+                    fontSize: 9,
+                    fill: '#71717a',
+                  }}
+                />
+              ) : null}
+              {fiftyTwoWeek ? (
+                <ReferenceLine
+                  yAxisId="price"
+                  y={fiftyTwoWeek.low}
+                  stroke="#a1a1aa"
+                  strokeDasharray="2 5"
+                  strokeOpacity={0.75}
+                  label={{
+                    value: '52W L',
+                    position: 'insideTopLeft',
+                    fontSize: 9,
+                    fill: '#71717a',
+                  }}
+                />
+              ) : null}
             </ComposedChart>
           </ResponsiveContainer>
         ) : (
@@ -535,7 +572,7 @@ export function PriceChart({
               </span>
             </div>
           </div>
-          <PriceChart symbol={symbol} variant="fullscreen" />
+          <PriceChart symbol={symbol} variant="fullscreen" fiftyTwoWeek={fiftyTwoWeek} />
         </DialogContent>
       </Dialog>
     </section>

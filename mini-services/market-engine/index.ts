@@ -232,6 +232,8 @@ const pendingImpacts = new Map<string, number>() // symbol → next-tick jump (f
 // Session persistence — bun:sqlite-backed single-row JSON blob in db/custom.db
 // ---------------------------------------------------------------------------
 interface PersistBlob {
+  /** Schema version — bumped when the shape changes; mismatched blobs are discarded. */
+  v: number
   savedAt: string
   lusakaDate: string
   usdRate: number
@@ -251,6 +253,9 @@ interface PersistBlob {
   indexHistory: { t: number; v: number }[]
   newsLog: NewsItem[]
 }
+
+/** Bump whenever PersistBlob's shape changes — old blobs seed a fresh session. */
+const STATE_VERSION = 2
 
 let persistDb: Database | null = null
 try {
@@ -274,6 +279,7 @@ function saveState(): void {
   if (!persistDb) return
   try {
     const blob: PersistBlob = {
+      v: STATE_VERSION,
       savedAt: new Date().toISOString(),
       lusakaDate: lusakaDateStr(Date.now()),
       usdRate,
@@ -317,6 +323,12 @@ function restoreState(): boolean {
       .get() as { value: string } | null
     if (!row?.value) return false
     const blob = JSON.parse(row.value) as PersistBlob
+    if (blob.v !== STATE_VERSION) {
+      console.log(
+        `[engine] persisted state version ${blob.v ?? '—'} != ${STATE_VERSION} — seeding fresh session`,
+      )
+      return false
+    }
     if (blob.lusakaDate !== lusakaDateStr(Date.now())) return false
     if (!blob.stocks || typeof blob.usdRate !== 'number') return false
 

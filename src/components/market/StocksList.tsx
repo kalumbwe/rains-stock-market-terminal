@@ -35,7 +35,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
-import { GripVertical, Star, Search, Inbox } from 'lucide-react';
+import { Bell, GripVertical, Star, Search, Inbox } from 'lucide-react';
 import { Sparkline } from './Sparkline';
 import { useMarketStore } from '@/lib/market/store';
 import { fmtK, fmtPct } from '@/lib/market/format';
@@ -53,6 +53,7 @@ export function StocksList() {
   const stocks = useMarketStore((s) => s.stocks);
   const priceHistory = useMarketStore((s) => s.priceHistory);
   const selectedSymbol = useMarketStore((s) => s.selectedSymbol);
+  const alertSymbols = useMarketStore((s) => s.activeAlertSymbols);
   const setSelected = useMarketStore((s) => s.setSelected);
 
   const [query, setQuery] = useState('');
@@ -226,6 +227,7 @@ export function StocksList() {
     const q = stocks[sym];
     if (!q) return null;
     const starred = watchSymbols.has(sym);
+    const hasActiveAlert = alertSymbols.includes(sym);
     const active = selectedSymbol === sym;
     const spark = priceHistory[sym] ?? [];
     return (
@@ -265,8 +267,17 @@ export function StocksList() {
         </button>
 
         <div className="min-w-0 flex-1 leading-tight">
-          <div className="truncate text-sm font-bold tracking-wide text-zinc-100">
-            {q.symbol}
+          <div className="flex items-center gap-1.5 truncate text-sm font-bold tracking-wide text-zinc-100">
+            <span className="truncate">{q.symbol}</span>
+            {hasActiveAlert && (
+              <span
+                title="Active price alert watching this counter"
+                aria-label="Active price alert"
+                className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-amber-500/15"
+              >
+                <Bell className="h-2.5 w-2.5 fill-amber-400 text-amber-400" aria-hidden="true" />
+              </span>
+            )}
           </div>
           <p className="truncate text-[11px] text-zinc-500">{q.name}</p>
         </div>

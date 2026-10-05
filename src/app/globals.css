@@ -1,7 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is(.dark *, .oled *));
 
 @theme inline {
   --color-background: var(--background);
@@ -78,7 +78,9 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-.dark {
+/* Dark and OLED share the shadcn token overrides (OLED re-inks zinc below). */
+.dark,
+.oled {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -135,6 +137,21 @@
   --luse-app-bg: #0a0a0b;
 }
 
+/* OLED: pure-black variant of the dark terminal (AMOLED / dimmed rooms).
+   Shares the .dark shadcn tokens above; only the surface ramp gets deeper. */
+.oled {
+  --luse-app-bg: #000000;
+
+  --color-zinc-950: #000000;
+  --color-zinc-900: #0b0b0d;
+  --color-zinc-800: #1c1c21;
+  --color-zinc-700: #2c2c33;
+  /* Text ramp stays legible on true black — keep 100/200/300, soften mids. */
+  --color-zinc-400: #9a9aa3;
+  --color-zinc-500: #7c7c85;
+  --color-zinc-600: #61616a;
+}
+
 .light {
   --luse-app-bg: #ececef;
 
@@ -167,6 +184,17 @@
 }
 .light .luse-scroll {
   scrollbar-color: #c9c9cf transparent;
+}
+
+/* OLED scrollbars — near-invisible track, subtle thumb. */
+.oled ::-webkit-scrollbar-thumb {
+  background: #26262c;
+}
+.oled ::-webkit-scrollbar-thumb:hover {
+  background: #34343c;
+}
+.oled .luse-scroll {
+  scrollbar-color: #26262c transparent;
 }
 
 /* Light shimmer sweep. */

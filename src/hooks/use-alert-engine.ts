@@ -158,6 +158,42 @@ export function useAlertEngine(): AlertsState {
     void refresh();
   }, [refresh]);
 
+  // Mirror active alert symbols into the market store so list rows and the
+  // screener can badge counters that are being watched.
+  useEffect(() => {
+    useMarketStore
+      .getState()
+      .setActiveAlertSymbols(alerts.filter((a) => a.active).map((a) => a.symbol));
+  }, [alerts]);
+
+  // ── Big-mover toasts (once per symbol per session, live crossings only) ──
+  useEffect(() => {
+    const seen = new Set<string>();
+    const markCurrent = () => {
+      const { stocks } = useMarketStore.getState();
+      for (const sym of Object.keys(stocks)) {
+        const q = stocks[sym];
+        if (q && Math.abs(q.changePct) >= 3) seen.add(sym);
+      }
+    };
+    // Consume the current snapshot silently — only LIVE crossings announce.
+    markCurrent();
+    const unsub = useMarketStore.subscribe(() => {
+      const { stocks } = useMarketStore.getState();
+      for (const sym of Object.keys(stocks)) {
+        const q = stocks[sym];
+        if (!q || Math.abs(q.changePct) < 3 || seen.has(sym)) continue;
+        seen.add(sym);
+        const up = q.changePct > 0;
+        toast({
+          title: `${up ? '🚀' : '⚡'} ${sym} ${up ? '+' : ''}${q.changePct.toFixed(1)}% today`,
+          description: `${q.name || sym} is a big mover — last ${fmtK(q.price)}.`,
+        });
+      }
+    });
+    return unsub;
+  }, []);
+
   // ── Trigger engine ────────────────────────────────────────────────
   useEffect(() => {
     let checking = false;

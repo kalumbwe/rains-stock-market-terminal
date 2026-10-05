@@ -230,7 +230,14 @@ export function StockDetail({ symbol, onTrade }: StockDetailProps) {
         ) : null}
       </section>
 
-      <PriceChart symbol={symbol} />
+      <PriceChart
+        symbol={symbol}
+        fiftyTwoWeek={
+          profile
+            ? { high: profile.fiftyTwoWeekHigh, low: profile.fiftyTwoWeekLow }
+            : null
+        }
+      />
 
       <StatsGrid quote={quote ?? null} profile={profile} />
 

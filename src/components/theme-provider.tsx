@@ -1,9 +1,11 @@
 'use client';
 
 /**
- * Theme provider — next-themes with a two-state class strategy.
- * "dark" is the canonical terminal skin; "light" is the Daylight remap
- * defined in globals.css. Managed on <html> so Radix portals inherit it.
+ * Theme provider — next-themes with a class strategy over three skins:
+ *   dark  — canonical zinc-950 terminal
+ *   light — Daylight remap (globals.css .light)
+ *   oled  — pure-black variant of dark (globals.css .oled)
+ * Managed on <html> so Radix portals inherit it.
  */
 
 import { ThemeProvider as NextThemesProvider } from 'next-themes';
@@ -17,6 +19,7 @@ export function ThemeProvider({
     <NextThemesProvider
       attribute="class"
       defaultTheme="dark"
+      themes={['dark', 'light', 'oled']}
       enableSystem={false}
       disableTransitionOnChange
       {...props}

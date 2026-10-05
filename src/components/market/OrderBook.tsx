@@ -160,9 +160,16 @@ export function OrderBook({ symbol }: { symbol: string }) {
               </p>
               <div className="space-y-1">
                 {book.bids.map((b, i) => (
-                  <div key={`bid-${i}`} className="relative flex h-6 items-center overflow-hidden rounded">
+                  <div
+                    key={`bid-${i}`}
+                    className={`relative flex h-6 items-center overflow-hidden rounded transition-colors ${
+                      i === 0 ? 'hover:bg-emerald-500/[0.07]' : 'hover:bg-zinc-800/40'
+                    }`}
+                  >
                     <div
-                      className="absolute inset-y-0 left-0 bg-emerald-500/15"
+                      className={`absolute inset-y-0 left-0 transition-[width] duration-700 ease-out ${
+                        i === 0 ? 'bg-emerald-500/25' : 'bg-emerald-500/15'
+                      }`}
                       style={{ width: `${(b.size / maxSize) * 100}%` }}
                       aria-hidden="true"
                     />
@@ -186,9 +193,16 @@ export function OrderBook({ symbol }: { symbol: string }) {
               </p>
               <div className="space-y-1">
                 {book.asks.map((a, i) => (
-                  <div key={`ask-${i}`} className="relative flex h-6 items-center overflow-hidden rounded">
+                  <div
+                    key={`ask-${i}`}
+                    className={`relative flex h-6 items-center overflow-hidden rounded transition-colors ${
+                      i === 0 ? 'hover:bg-rose-500/[0.07]' : 'hover:bg-zinc-800/40'
+                    }`}
+                  >
                     <div
-                      className="absolute inset-y-0 right-0 bg-rose-500/15"
+                      className={`absolute inset-y-0 right-0 transition-[width] duration-700 ease-out ${
+                        i === 0 ? 'bg-rose-500/25' : 'bg-rose-500/15'
+                      }`}
                       style={{ width: `${(a.size / maxSize) * 100}%` }}
                       aria-hidden="true"
                     />

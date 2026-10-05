@@ -305,3 +305,36 @@ Stage Summary:
 - Runbook unchanged: Next :3000 (auto), engine :3003 via setsid nohup (full restart after edits; kill by port PID), preview via Caddy :81 (socket.io needs XTransformPort). Radix tabs need agent-browser click @ref (synthetic clicks don't switch tabs).
 - Remaining ideas (priority): i18n (EN/Bembe/Lozi); NextAuth watchlist sync across devices; engine state versioning guard; sound volume/choice options; light-theme fine-tuning for any newly added hardcoded-rgba components (current ones verified); OLED pure-black variant (cheap now — one more var scope).
 - Known minor: screenshots in this sandbox render with a warm color cast and mangled glyphs (display artifact — verified clean via computed styles/tsc); header Compare chip now hidden <sm (by design, palette covers it); palette tab group only on mobile.
+
+---
+Task ID: 12 (cron webDevReview round 8)
+Agent: main coordinator (scheduled review)
+Task: Status assessment, agent-browser QA, OLED theme + 52W chart anchors + alert bell badges + auto mover toasts + engine state versioning + order-book polish.
+
+Work Log:
+- STATUS ASSESSMENT: engine :3003 ticking:true/persist:true, Next :3000 200, gateway :81 200. Baseline QA via :81: 17 stocks connected, live ticks, zero console errors → no pre-existing bugs → feature round.
+- NEW FEATURE 1 — OLED pure-black theme (3rd skin):
+  - globals.css: @custom-variant dark extended to `(&:is(.dark *, .oled *))` so shadcn dark: utilities match under OLED; `.dark` token block merged to `.dark, .oled`; NEW `.oled` scope — --luse-app-bg #000, zinc-950→#000000, zinc-900→#0b0b0d, zinc-800→#1c1c21, zinc-700→#2c2c33, mids softened for legibility on true black; OLED scrollbar variants.
+  - ThemeProvider now themes=['dark','light','oled']; ThemeToggle → header DropdownMenu picker (Dark·Classic terminal / Daylight·Bright office / OLED·Pure black, icons + orange active dot, aria-pressed).
+  - VERIFIED: menu lists 3 options; OLED → html.oled + appBg rgb(0,0,0) + persisted; Daylight still rgb(236,236,239); dark restored.
+  - ⚠️ CRITICAL BUILD GOTCHA (cost ~40min): after consecutive large CSS edits via HMR, Turbopack served a PARTIALLY STALE compiled CSS chunk — new `dark:*:is(.dark *, .oled *)` variant utilities compiled but the new `.oled`/`.dark,.oled` variable blocks were silently missing from the served CSS (verified by curl + python parse; source file correct; a full dev-server restart did NOT fix it). FIX: kill dev tree (kill whole supervisor chain: bun run dev → bash → node next dev → next-server; killing only next-server PID leaves the tree holding .next/dev/lock) + `rm -rf .next` + cold start → all rules compile. RULE: when a CSS rule mysteriously doesn't apply, curl the served chunk and grep it before doubting the markup; if stale, wipe .next.
+- NEW FEATURE 2 — 52W high/low anchor lines on PriceChart:
+  - PriceChart gained optional `fiftyTwoWeek: {high, low}` prop (forwarded to the fullscreen instance too); on daily views (1M/3M/1Y) renders two dashed ReferenceLines (#a1a1aa, 2-5 dash, 0.75 opacity) with tiny "52W H"/"52W L" labels (9px zinc-500, insideBottomLeft/insideTopLeft); default ifOverflow=discard auto-hides them when outside the visible window.
+  - StockDetail passes {profile.fiftyTwoWeekHigh, fiftyTwoWeekLow}.
+  - 🐛 RECHARTS GOTCHA FOUND & FIXED: ReferenceLines inside a `<>fragment</>` child of ComposedChart NEVER RENDER (recharts 2.15 doesn't traverse fragment children when collecting reference elements) — verified via data-* prop probe + DOM; FIX: two direct conditional children (no fragment). Documented in-code. Verified: 2 lines + both labels render on 1Y; domain math (data min/max ±8% pad) keeps the anchors at the top/bottom edges of the 1Y window.
+- NEW FEATURE 3 — Active-alert bell badges:
+  - store: `activeAlertSymbols: string[]` + setActiveAlertSymbols (shallow-equal guarded); use-alert-engine mirrors active alerts into the store on every change.
+  - StocksList rows show a small amber Bell chip next to the symbol when it has an ACTIVE alert (title + sr-only label). VERIFIED: ZANACO row badges (seeded active alert).
+- NEW FEATURE 4 — Auto big-mover toasts:
+  - use-alert-engine subscription: on store updates, any counter whose |day change| crosses ±3% fires ONE toast per symbol per session ("🚀/⚡ SYM ±x.x% today — <name> is a big mover — last K…"). Snapshot consumed silently on mount (only LIVE crossings announce). VERIFIED LIVE: NBL crossed −3.1% during QA → toast fired bottom-right.
+- NEW FEATURE 5 — Engine state versioning guard:
+  - PersistBlob gained `v`; STATE_VERSION=2 constant; saveState writes it; restoreState discards mismatched versions with a log line (old unversioned blobs seed fresh). VERIFIED: engine restarted mid-round (kill by port PID → setsid nohup bun run index.ts) — health ticking:true/persist:true/restoredSession:true (old `bun --hot` process had hot-applied the new save-side code before the kill, so the v=2 blob restored cleanly — guard code path exercised).
+- STYLING DETAIL — OrderBook rows: depth bars animate width (700ms ease-out) on 5s refetch; best-bid/best-ask rows get stronger bar tint (emerald/rose-500/25) + side-tinted hover; other rows neutral hover.
+- Verification: bunx tsc --noEmit 0 src errors; bun run lint clean; agent-browser E2E via :81: theme picker 3-way (computed appBg verified per theme), 52W lines + labels on 1Y, bell badge, mover toast live-fired, mobile 390 overflow 0, zero console errors, engine healthy throughout.
+
+Stage Summary:
+- Terminal now ships 3 themes (dark/Daylight/OLED), 52W context anchors on daily charts, alert-aware stock rows, session-aware mover announcements, and a version-guarded engine persistence layer.
+- Files: globals.css, theme-provider.tsx, ThemeToggle.tsx (picker), PriceChart.tsx (+StockDetail), store.ts, use-alert-engine.ts, StocksList.tsx, OrderBook.tsx, mini-services/market-engine/index.ts.
+- Runbook: Next :3000 (cold rebuild = kill full supervisor chain + rm -rf .next + bun run dev); engine :3003 (kill by port PID, setsid nohup, full restart after edits); preview via Caddy :81.
+- Remaining ideas (priority): i18n (EN/Bemba/Nyanja/Lozi — needs translation research); NextAuth watchlist sync; sound volume/choice options; portfolio benchmark vs LASI; screener sparkline for index row; engine state versioning bump process note (STATE_VERSION=2 in place).
+- Known minor: 52W anchors hidden on 1D (by design — domain would explode); mover threshold fixed at ±3%; theme picker replaces the old binary toggle (⌘K palette unchanged).

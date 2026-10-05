@@ -53,6 +53,8 @@ export interface MarketStore {
   usdHistory: number[];
   /** Latest trade prints per symbol (Time & Sales), newest first. */
   trades: Record<string, TradePrint[]>;
+  /** Symbols that currently have an ACTIVE (untriggered) price alert. */
+  activeAlertSymbols: string[];
 
   setConnected: (connected: boolean) => void;
   setSelected: (symbol: string) => void;
@@ -61,6 +63,7 @@ export interface MarketStore {
   setNews: (items: NewsItem[]) => void;
   prependNews: (item: NewsItem) => void;
   clearFlash: (symbol: string) => void;
+  setActiveAlertSymbols: (symbols: string[]) => void;
 }
 
 /** Pending flash-clear timers, keyed by symbol. */
@@ -114,6 +117,7 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
   priceHistory: {},
   usdHistory: [],
   trades: {},
+  activeAlertSymbols: [],
 
   setConnected: (connected) => set({ connected }),
 
@@ -261,6 +265,18 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
       const flash = { ...state.flash };
       delete flash[symbol];
       return { flash };
+    }),
+
+  setActiveAlertSymbols: (symbols) =>
+    set((state) => {
+      const prev = state.activeAlertSymbols;
+      if (
+        prev.length === symbols.length &&
+        prev.every((s, i) => s === symbols[i])
+      ) {
+        return state;
+      }
+      return { activeAlertSymbols: symbols };
     }),
 }));
 
