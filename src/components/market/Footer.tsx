@@ -1,6 +1,7 @@
 'use client';
 
-import { Activity, Keyboard, ShieldAlert } from 'lucide-react';
+import Image from 'next/image';
+import { Keyboard, ShieldAlert } from 'lucide-react';
 
 /**
  * Sticky-to-bottom footer. Sits at the viewport bottom when the page is
@@ -45,8 +46,14 @@ export function Footer({ onOpenShortcuts }: { onOpenShortcuts?: () => void }) {
       <div className="mx-auto flex w-full max-w-[1800px] flex-col items-start justify-between gap-2 px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-xs text-zinc-500 sm:flex-row sm:items-center sm:px-6">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <div className="flex items-center gap-2">
-            <Activity className="h-3.5 w-3.5 text-orange-500" aria-hidden="true" />
-            <span className="font-semibold tracking-wide text-zinc-400">LuSE Pulse</span>
+            <Image
+              src="/logo-zambia-flag.png"
+              alt=""
+              width={16}
+              height={16}
+              className="h-4 w-4 object-contain"
+            />
+            <span className="font-semibold tracking-wide text-zinc-400">Rains Stock Market</span>
             <span aria-hidden="true" className="text-zinc-700">·</span>
             <span>Zambia Market Terminal</span>
           </div>

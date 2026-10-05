@@ -124,7 +124,7 @@
 }
 
 /* ────────────────────────────────────────────────────────────────────────
-   LuSE Pulse — Daylight (light) theme
+   Rains Stock Market — Daylight (light) theme
    The terminal UI is written against Tailwind's zinc scale; Tailwind v4
    compiles those utilities to var(--color-zinc-*), so remapping the scale
    under html.light re-skins every component without touching markup.
@@ -232,7 +232,7 @@
 }
 
 /* ────────────────────────────────────────────────────────────────────────
-   LuSE Pulse — terminal custom styles (appended)
+   Rains Stock Market — terminal custom styles (appended)
    ──────────────────────────────────────────────────────────────────────── */
 
 /* Ticker tape marquee: strip is rendered twice, -50% loops seamlessly. */

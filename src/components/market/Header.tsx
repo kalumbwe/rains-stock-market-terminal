@@ -6,7 +6,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Activity, DollarSign, GitCompareArrows, RadioTower, Search, TableProperties } from 'lucide-react';
+import Image from 'next/image';
+import { DollarSign, GitCompareArrows, RadioTower, Search, TableProperties } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMarketStore } from '@/lib/market/store';
@@ -151,7 +152,7 @@ export function Header({
       const now = Date.now();
       if (now - last < 1000 || !s.index) return;
       last = now;
-      document.title = `LASI ${fmtIndex(s.index.value)} ${fmtPct(s.index.changePct)} · LuSE Pulse`;
+      document.title = `LASI ${fmtIndex(s.index.value)} ${fmtPct(s.index.changePct)} · Rains Stock Market`;
     });
   }, []);
 
@@ -161,17 +162,24 @@ export function Header({
   return (
     <header className="sticky top-0 z-40 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md">
       <div className="mx-auto flex w-full max-w-[1800px] items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-6">
-        {/* Brand — never compressed on narrow screens */}
+        {/* Brand — official flag mark + name; never compressed on narrow screens */}
         <div className="flex shrink-0 items-center gap-2.5">
-          <div
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-500/15 ring-1 ring-orange-500/40"
-            aria-hidden="true"
+          <span
+            className="relative flex h-9 w-9 shrink-0 items-center justify-center"
+            title="Rains Stock Market — official logo"
           >
-            <Activity className="h-5 w-5 text-orange-500" />
-          </div>
+            <Image
+              src="/logo-zambia-flag.png"
+              alt=""
+              width={36}
+              height={36}
+              priority
+              className="h-9 w-9 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
+            />
+          </span>
           <div className="leading-tight">
             <h1 className="whitespace-nowrap text-sm font-bold tracking-wide text-zinc-100">
-              LuSE Pulse
+              Rains Stock Market
             </h1>
             <p className="hidden whitespace-nowrap text-[10px] uppercase tracking-widest text-zinc-500 xl:block">
               Zambia Market Terminal

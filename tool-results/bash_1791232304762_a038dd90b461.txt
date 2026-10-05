@@ -1,0 +1,151 @@
+340 /home/z/my-project/worklog.md
+Task: Status assessment, agent-browser QA, engine persistence + analysis features round (sparkline/depth/VWAP/symbol-news/CSV).
+
+Work Log:
+- STATUS: all services healthy on start — engine :3003 ticking:true (uptime 46m), Next :3000 OK, gateway :81 200, dev.log clean. Baseline agent-browser QA (desktop 1440 + mobile 390 via Caddy :81): live ticks/tape/title, 17 rows, zero console errors, no h-scroll. No product bugs found in the pre-existing UI.
+- ENGINE PERSISTENCE (top backlog item, shipped): mini-services/market-engine/index.ts now persists the in-progress session (per-stock price/dayOpen/dayHigh/dayLow/volume/valueTraded/anchor + 1m candles, index history, news log, USD/ZMW) as a JSON blob in db/custom.db table engine_state (bun:sqlite, id=1 row) every 15s + on SIGTERM/SIGINT. On boot, restoreState() replays it only when the save is from the same Lusaka calendar day, else seeds fresh. /health gained `persist` + `restoredSession`. VERIFIED live: killed engine (uptime 359s) while browser was connected → restarted → "restored today's session (18:56:17) — 568 index pts, 3 news items"; UI auto-reconnected with NO banner; ZANACO volume CONTINUED 3,957,039 → 4,064,654 (not reset), dayHigh preserved. Also fixed pre-existing `import.meta.dir` tsc error (→ import.meta.url/fileURLToPath) and added mini-services/market-engine/tsconfig.json (types:["bun-types"]) so the engine typechecks clean on its own.
+- NEW FEATURE 1 — Screener Trend column: engine stockSnapshot() now includes `history` (last ≤60 1m closes; snapshots only, not ticks); /api/screener passes it through as `sparkline`; ScreenerDialog renders a 72×22 Sparkline per row (live store ring-buffer preferred, engine history fallback). Sparkline.tsx now uses useId() for unique gradient ids (17 SVGs share a page). Shared/api-contract.md updated (snapshot history + screener sparkline + persistence section).
+- BUG FIXED (screener dialog overflow): table rows visibly spilled past the dialog's bottom border/rounded corners — TabsContent isn't a flex container so the inner `flex-1` scroll div never got a height. Fix: TabsContent(table) → `flex min-h-0 flex-1 flex-col overflow-hidden`; correlation tab gets luse-scroll. Verified both tabs now clip + scroll inside the dialog.
+- NEW FEATURE 2 — Market depth chart + imbalance (OrderBook.tsx): cumulative stepped depth areas around the mid (emerald bids stepBefore / rose asks stepAfter, gradient fills, price axis, mid label, hover tooltip) + bid/ask imbalance split-bar with % and total sizes (5 levels).
+- NEW FEATURE 3 — VWAP overlay (PriceChart.tsx): cumulative Σ(typical×v)/Σv across 1m candles on the 1D view, dashed fuchsia line + VWAP row in tooltip + toggle button (styled like MA20). Also added dashed zinc prev-close ReferenceLine on 1D.
+- NEW FEATURE 4 — Related News (new SymbolNews.tsx in StockDetail): per-symbol headlines from the live store news log (up to 5), sentiment dots, HIGH/MED/LOW impact chips, source + ago, bullish/bearish tally; empty state when quiet.
+- NEW FEATURE 5 — Portfolio CSV export (PortfolioTab.tsx): one-click client-side CSV (summary + positions + trades) → luse_portfolio_YYYYMMDD.csv. Positions table restyled as compact two-line rows (symbol/qty/P&L% + Sell | avg→last/sector) — fixes the Sell button clipping in the 340px rail; footer stacked (buttons row + centered caption).
+- STYLING DETAIL: StockDetail header gained a live Bid/Ask/spread strip (emerald/rose chips + spread label) under the day-range bar.
+- Ops note: `pkill -f market-engine` does NOT match the child `bun --hot index.ts` (relative cmdline) — kill by port PID instead: `ss -ltnp | grep 3003` → kill <pid>. First hot-reload race re-confirmed (port-conflict error in log) — always full-restart the engine after edits.
+- Verified: bun run lint 0/0; tsc --noEmit → 0 errors under src/ (root run: only 2 pre-existing skills/** errors; engine clean under its own tsconfig after excluding mini-services from root tsconfig). agent-browser E2E via :81: depth chart + imbalance + VWAP + prev-close line + bid/ask strip + screener sparklines + related news all render (desktop + mobile 390); paper trade BUY 150 ZANACO @K9.72 executed (cash K77,345.73 server-verified); portfolio export click clean; zero console errors; engine restart continuity proven.
+
+Stage Summary:
+- Engine now survives restarts mid-session (same-day restore) — biggest reliability gap closed; /health persist/restoredSession fields for liveness.
+- Analysis layer grew: screener trend sparklines, cumulative depth chart + order-flow imbalance, session VWAP + prev-close line, per-symbol related news, portfolio CSV export.
+- Files: engine index.ts (+tsconfig), api-contract.md, src/lib/market-engine.ts, api/screener/route.ts, lib/market/screener.ts, Sparkline.tsx, ScreenerDialog.tsx, OrderBook.tsx, PriceChart.tsx, StockDetail.tsx, SymbolNews.tsx (new), PortfolioTab.tsx, tsconfig.json (exclude mini-services).
+- Runbook unchanged: Next :3000 (auto), engine :3003 via setsid nohup (full restart after edits — check /health ticking:true, persist:true), preview via Caddy :81. Engine kill by port PID (pkill -f misses `bun --hot index.ts`).
+- Remaining ideas (priority): screener CSV export; price-history export incl. news; alert presets (% moves) + browser notifications; i18n (EN/Bembe/Lozi); NextAuth watchlist sync; light theme; engine state versioning/migration guard if luse-stocks.json symbols change (restore skips unknown symbols safely today).
+- Known minor: screener sparkline falls back to 5-min-cached engine history when store buffers are empty; correlation/compare still use seeded daily history (illustrative).
+
+---
+Task ID: 9 (cron webDevReview round 5)
+Agent: main coordinator (scheduled review)
+Task: Status assessment, agent-browser QA, feature round (alert presets + desktop notifications, screener perf columns + CSV export, shortcuts help dialog) + styling polish.
+
+Work Log:
+- STATUS ASSESSMENT: all services healthy on start — engine :3003 ticking:true (persist:true, restoredSession:true), Next :3000 200, gateway :81 200, dev.log clean. Baseline agent-browser QA via :81 (desktop 1440 + mobile 390): live ticks/title/tape, 17 rows, tabs switch, zero console errors, no h-scroll. NO product bugs found this round → proceeded to feature work.
+- NEW FEATURE 1 — Alert quick presets + desktop notifications:
+  - AlertsTab: "QUICK PRESETS" chip row under the create form — +1/+5/+10% (emerald→ABOVE) and −1/−5/−10% (rose→BELOW) computed from the LIVE quote of the form's symbol (falls back to terminal selection), plus Day Hi / Day Lo chips (above dayHigh / below dayLow). Chips show "{SYM} @ K{live}" context label; disabled when no quote.
+  - use-alert-engine: notifyEnabled state persisted in localStorage (luse_desktop_notify); enableNotifications() requests Notification permission (graceful toasts on unsupported/denied), disableNotifications() turns it off; trigger engine now ALSO fires a system Notification (icon /icons/icon-192.png, tag luse-alert) alongside the toast when opted in.
+  - Prop wiring: TerminalApp owns toggleNotifications → passes notifyEnabled/onToggleNotifications to mobile AlertsTab AND desktop SideRail → AlertsTab (SideRailProps extended).
+  - Verified: +5% preset on ZANACO filled 9.91 from live K9.44, alert created → ACTIVE "Watching live ticks"; toggle click in headless browser (permission auto-denied) correctly stays Notify-off with destructive toast — real browsers will show the native prompt.
+- NEW FEATURE 2 — Screener multi-horizon performance + CSV export:
+  - GET /api/screener now returns chg1w/chg1m/chg3m (latest seeded close vs 5/21/63 trading days back; null when history short). 17 parallel Prisma findMany (take 64 closes, desc). shared/api-contract.md updated.
+  - ScreenerDialog: new sortable 1W (xl) / 1M (lg) / 3M (xl) columns with color-coded values + "—" for null; null-safe numeric sort (nulls always sink). Header gained a CSV export button → luse_screener_YYYYMMDD.csv (Symbol/Name/Sector/Price/PrevClose/Chg%/1W/1M/3M/Volume/Turnover/Cap/PE/DY/EPS/Beta/52W-High/52W-Low, live overlay applied). Verified download lands with 17 data rows + all columns; sort by 1M asc/desc works (CHIL top, ZFCO bottom).
+- NEW FEATURE 3 — Keyboard-shortcuts help dialog (new ShortcutsDialog.tsx): grouped list (Navigation / Trading / Analysis / General) in kbd-chip cards; opened by `?` key (use-keyboard-shortcuts gained onShortcutsHelp param) AND by clicking the footer kbd-hint row (Footer now takes onOpenShortcuts prop, hint row is a real button + new `?` help chip); `?` inside the dialog closes it (own window listener; the global hook deliberately ignores keys inside dialogs).
+- STYLING DETAIL: alert preset chips tightened (gap-0.5, px-1, "Day Hi/Day Lo") so all 8 chips fit ONE row in the 340px desktop rail (verified via rect comparison) and on mobile; screener CSV button styled to match dialog chrome (hover→orange); notify chip = rounded-full status pill (emerald when on, zinc when off).
+- Verification: bun run lint 0/0; bunx tsc --noEmit clean (src + engine tsconfig); agent-browser E2E via :81: screener columns/sort/CSV, presets fill+create, notify toggle denied-path toast, ? dialog open/close/footer-button, mobile 390 alerts tab clean with footer pushed naturally, zero console errors, engine ticking:true throughout.
+
+Stage Summary:
+- Alerts are now actionable at a glance (presets) and reach users outside the tab (desktop notifications); screener gained a real multi-horizon performance layer (1W/1M/3M) + data export; all shortcuts discoverable via `?`.
+- Files: src/app/api/screener/route.ts, src/lib/market/screener.ts, src/components/market/{ScreenerDialog,AlertsTab,SideRail,TerminalApp,Footer}.tsx, src/components/market/ShortcutsDialog.tsx (NEW), src/hooks/{use-alert-engine,use-keyboard-shortcuts}.ts, shared/api-contract.md.
+- Runbook unchanged: Next :3000 (auto), engine :3003 via setsid nohup (full restart after edits — check /health ticking:true), preview via Caddy :81 (socket.io needs XTransformPort). NOTE: Radix tabs need agent-browser click @ref (synthetic el.click() does not switch tabs).
+- Remaining ideas (priority): price-history export incl. news; i18n (EN/Bembe/Lozi); NextAuth watchlist sync; light theme; sound option for alert triggers; engine state versioning guard.
+- Known minor: Notification permission in headless QA is auto-denied (native prompt only in real browsers — by design); screener 1W/3M columns only visible ≥1280px viewport (xl) to keep the table compact; compare/correlation still use seeded daily history (illustrative).
+
+---
+Task ID: 10 (cron webDevReview round 6)
+Agent: main coordinator (scheduled review)
+Task: Status assessment, agent-browser QA, feature round (watchlist drag-to-reorder + alert sound + news CSV export) + OOM incident recovery.
+
+Work Log:
+- STATUS ASSESSMENT: engine :3003 ticking:true/persist:true, Next :3000 200, gateway :81 200. Baseline agent-browser QA (desktop 1440 + mobile 390 via :81): live ticks/tape, tabs switch, screener renders, ZERO console errors, no h-scroll — NO product bugs found → proceeded to feature work. (One scare: stale console errors "Module not found: ShortcutsDialog" persisted in agent-browser's console BUFFER from a previous session's transient HMR state — a fully fresh browser session showed 0 errors; trust fresh sessions, not accumulated buffers.)
+- OOM INCIDENT + RECOVERY (critical ops lesson): mid-round the Next dev server AND engine processes died. dmesg showed the OOM killer reaped next-server (2GB RSS!) on this 4GB sandbox — compounded by THREE stray engine instances (bun --hot) from earlier rounds. Cleanup: killed all stray engines by PID, restarted ONE engine + ONE Next via /tmp/start_services.sh (setsid nohup). Both stable since. Watch memory: avoid duplicate dev processes; full Turbopack recompiles after Prisma regen are heavy.
+- PRISMA CLIENT GOTCHA: after adding WatchlistItem.order + db:push, /api/watchlist returned PrismaClientValidationError until BOTH db:generate re-ran AND the dev server was fully restarted (Turbopack keeps the old client module in memory). Any Prisma schema change → restart Next dev.
+- FEATURE 1 — Watchlist drag-to-reorder (dnd-kit, persisted):
+  - Prisma: WatchlistItem.order Int @default(0) + @@index([order]); db:push OK (existing rows order=0).
+  - API: GET orders by [{order:asc},{createdAt:asc}] and maps `order`; POST appends with order=max+1; NEW PATCH /api/watchlist {symbols:[...]} sets index orders in a $transaction (unknown symbols ignored, 400 on invalid body). shared/api-contract.md updated.
+  - StocksList: reorderMode = watchlist tab AND empty search; displaySymbols follows watchlist order in that mode; DndContext+SortableContext(verticalListSortingStrategy) wraps rows; SortableRow render-prop injects a GripVertical handle (h-8 w-5 touch-none, keyboard-reorderable, Space/arrows); PointerSensor distance 6 keeps plain click = select; dragging row gets lift shadow + orange ring; dragEnd → arrayMove → optimistic setWatchlist → PATCH → "Watchlist order saved" toast, revert + destructive toast on failure; optimistic star item carries order MAX_SAFE_INTEGER.
+  - VERIFIED E2E: agent-browser drag of ZSUG handle from row 1 → row 5 reordered UI instantly; server GET showed new order; FULL PAGE RELOAD kept the order; PATCH validation (empty array / garbage body → 400); console 0 errors.
+- FEATURE 2 — Alert sound (Web Audio ping, opt-in):
+  - NEW src/lib/market/sound.ts: readAlertSoundPref/writeAlertSoundPref (localStorage luse_alert_sound) + playAlertBeep() — two sine notes A5→E6, shared gain envelope, autoplay-policy resume, SSR-safe no-ops.
+  - use-alert-engine: soundEnabled state hydrated on mount, enableSound (persists + confirmation beep + toast) / disableSound; trigger loop now fires beep when pref on (alongside toast + desktop notification). Interface extended.
+  - Prop threading: TerminalApp toggleSound → mobile AlertsTab + desktop SideRail → AlertsTab. New "Sound on/off" pill chip (orange when on, Volume2/VolumeX) sits next to Notify chip.
+  - VERIFIED: toggle → chip flips SOUND OFF→ON, toast "🔊 Alert sound on", localStorage luse_alert_sound=on; live trigger test (ZSUG below K75 vs live K69.66) fired instantly → TRIGGERED 2→3 with toast; beep path executed (headless-silent), 0 console errors.
+- FEATURE 3 — News CSV export (completes the export story: candles/portfolio/screener/news):
+  - NewsTab: export button (Download icon, h-8 w-8, disabled when 0 filtered) beside the company-only toggle; exportCsv() dumps the CURRENTLY FILTERED feed (publishedAt,source,sentiment,impact,symbols,headline,body) with proper quote-escaping → luse_news_YYYYMMDD.csv.
+  - VERIFIED: clicked with 17 filtered rows → 5,128-byte CSV downloaded; header + 16 data rows, live socket headlines included, quoting correct.
+- STYLING DETAIL (alerts header): chips gained whitespace-nowrap + shrink-0 (no more two-line wrap), label truncates (min-w-0 truncate) so "NEW PRICE ALERT" yields gracefully while BOTH chips stay fully visible in the 340px rail; ml-auto moved onto the sound chip conditionally (no duplicate auto-margin conflict); Bell icon shrink-0.
+- Verification: bunx tsc --noEmit → only the 2 pre-existing skills/** errors (src clean); bun run lint clean; agent-browser E2E desktop+mobile all green; engine ticking:true/persist:true throughout; restored watchlist to canonical order after drag tests.
+- Files: prisma/schema.prisma, src/app/api/watchlist/route.ts, src/lib/market/types.ts, src/lib/market/sound.ts (NEW), src/hooks/use-alert-engine.ts, src/components/market/{StocksList,AlertsTab,SideRail,TerminalApp,NewsTab}.tsx, shared/api-contract.md, /tmp/start_services.sh (ops helper).
+- Runbook: Next :3000 (auto or /tmp/start_services.sh), engine :3003 via setsid nohup full restart after edits (kill by port PID — pkill -f misses bun --hot), preview via Caddy :81. After ANY prisma schema change: db:push + db:generate + RESTART Next dev.
+
+Stage Summary:
+- Watchlist is now a first-class, persistent, keyboard-accessible ordered list (drag handles, optimistic UI, server persistence); alerts gained an audible channel (opt-in Web Audio ping) completing toast+system-notification+sound; news feed completes the CSV export suite (candles/portfolio/screener/news).
+- Ops reliability hardened: OOM root-caused (2GB next-server + duplicate engines on 4GB sandbox), stray processes reaped, single-instance runbook documented, Prisma-regen-needs-restart gotcha recorded.
+- Remaining ideas (priority): light theme; i18n (EN/Bembe/Lozi); NextAuth watchlist sync across devices; engine state versioning guard; sound volume/choice options; screener compare-row highlight for watchlist symbols.
+- Known minor: alert label truncates to "NEW PRIC…" in 340px rail (by design, chips win); desktop-notification permission still auto-denied in headless QA (real browsers show prompt); sound pref is per-browser (localStorage) not per-account.
+
+---
+Task ID: 11 (cron webDevReview round 7)
+Agent: main coordinator (scheduled review)
+Task: Status assessment, agent-browser QA, Daylight theme + command palette + Time & Sales + session stats + screener watchlist stars + mobile header overflow fix.
+
+Work Log:
+- STATUS ASSESSMENT: all services healthy on start — engine :3003 ticking:true (persist:true, uptime 14m), Next :3000 200, gateway :81 200, dev.log clean. Baseline agent-browser QA via :81 (live ticks/tape/title, 17 rows, sparklines, LASI chart): ZERO console errors → no product bugs pre-existing this round → proceeded to feature work.
+- NEW FEATURE 1 — Daylight (light) theme, zero-markup reskin:
+  - Discovery: Tailwind v4 compiles zinc utilities to var(--color-zinc-*) and emits them as real CSS custom properties → globals.css now remaps the whole zinc ramp under `html.light` (zinc-950→#fafafc surfaces … zinc-100→#2e2e33 text) + boosts accent contrast (emerald/rose/amber/orange-400 → their 600 shades) + light scrollbars/shimmer/news-card shadow + re-inks recharts (grid/axis/tick/reference-line) via CSS-over-presentation-attribute rules.
+  - next-themes (already installed) wired via NEW src/components/theme-provider.tsx (attribute="class", defaultTheme="dark", enableSystem=false, disableTransitionOnChange) wrapping children in layout.tsx; TerminalApp's old manual `classList.add('dark')` effect REMOVED (ThemeProvider owns <html> class now).
+  - NEW ThemeToggle.tsx (header, Sun/Moon icon button) — hydration-safe `mounted` via useSyncExternalStore(emptySubscribe, () => true, () => false) (first pass used setState-in-effect, correctly flagged by react-hooks/set-state-in-effect lint — fixed).
+  - TerminalApp root bg #0a0a0b → var(--luse-app-bg) (:root #0a0a0b, .light #ececef) so the app shell follows the theme.
+  - VERIFIED: toggle → html.light + localStorage theme=light; computed styles appBg rgb(236,236,239), header near-white/80, brand text #2e2e33; screener dialog bg rgb(250,250,252) with readable near-black text; charts re-inked; toggled back to dark cleanly (class "dark"). Theme persists across reloads.
+- NEW FEATURE 2 — Command palette (⌘K / Ctrl+K):
+  - NEW CommandPalette.tsx on shadcn CommandDialog: Counters group (all 17, symbol chip + name + live price + colored chg%, fuzzy filter) → click selects symbol & closes; Trading (Buy/Sell selected — kbd hints B/S); Analysis (Screener P / Compare C); "Go to" mobile tab group (only rendered on mobile; Market/Terminal/Portfolio/News/Alerts with matching icons via paletteTabIcon()); Preferences & help (desktop-notifications toggle, alert-sound toggle, shortcuts help ?).
+  - Wired in TerminalApp (paletteOpen state + CommandPalette render; onNavigateTab → setMobileTab); use-keyboard-shortcuts gained onPalette param — ⌘K/Ctrl+K handled BEFORE the modifier bail-out (was `if (metaKey…) return;`); Header gained a search chip (⌘K kbd visible lg+) as clickable trigger.
+  - VERIFIED: Ctrl+K opens with live prices; typing "sugar" narrows to ZSUG; Enter → selectedSymbol=ZSUG, dialog closed; palette closed by Esc; mobile shows the Go-to group (5 entries).
+- NEW FEATURE 3 — Time & Sales trade tape:
+  - store.ts: NEW TradePrint {t, price, size, side} + `trades: Record<string, TradePrint[]>` (cap 40, newest first). applyTick derives prints from engine tick deltas: volDelta = volume − prevVolume > 0 → print; side from tick dir, fallback price-vs-prev.
+  - NEW TimeSales.tsx in StockDetail (under OrderBook): role=log table (Time / Side / Price / Size), BUY emerald / SELL rose chips, newest-first, 600ms flash-in on fresh prints via framer initial backgroundColor, buy/sell tally + LIVE pulse dot, luse-scroll max-h-56.
+  - VERIFIED via DOM: section found, 40 rows (cap), sides [SELL, BUY, BUY…].
+- NEW FEATURE 4 — Session stats + LASI chart crosshair (MarketTab): new "Session Stats" card (Market turnover ΣvalueTraded, Shares traded Σvolume, LASI high/low from live index history, Gauge icon, 2×2 ring tiles) + LASI intraday chart gained dashed prev-close ReferenceLine and a hover Tooltip (value, ±% vs prev close, HH:mm:ss, orange cursor).
+- NEW FEATURE 5 — Screener watchlist stars: ScreenerDialog fetches /api/watchlist when opened (Set of symbols), renders a filled Star (fill-orange-400) + sr-only "(in watchlist)" before member symbols. VERIFIED: ATEL/ZSUG/ZCCM-IH rows show stars with 5 watchlist entries.
+- DISCOVERABILITY: ShortcutsDialog General group gained "⌘ K — Command palette (Ctrl+K on Win/Linux)"; footer kbd hint row now starts with ⌘K palette chip.
+- RESPONSIVE BUG FOUND & FIXED (Header, regression from this round): the new palette chip + theme toggle overflowed the header — 41px h-scroll at 390px AND 101px at 1024px (every lg: element switches on at exactly 1024). Fixes: ml-auto gap-1 sm:gap-3; palette chip px-1.5 sm:px-2.5; Compare chip hidden below sm (reachable via palette); clock shows bare HH:mm below sm (new clock.mini, "CAT" suffix only sm+); Screener/Compare text labels, USD/ZMW chip, LIVE/AFTER-HOURS badge and LIVE/SYNC text all moved lg → xl. Sweep 360/390/640/768/1024/1100/1280/1440/1800 → 0 overflow everywhere.
+- OPS NOTE (display only): this session's tool outputs intermittently mangled text (e.g. "ounted," → "ounted", screenshots color-shifted) — ALWAYS cross-check suspicious reads with od -c / computed-style evals / tsc before "fixing" files that lint parsed fine; tsc+eslint passing is the ground truth. No file was actually corrupted.
+- Verification: bunx tsc --noEmit → 0 src errors (only 2 pre-existing skills/** errors); bun run lint clean (0 problems); agent-browser E2E via :81: palette open/search/select, theme toggle both ways with persisted localStorage + correct computed colors, Time & Sales prints, session stats live values, screener stars, shortcuts dialog ⌘K entry, footer hint, mobile palette Go-to group, ZERO console errors; engine ticking:true/persist:true throughout.
+
+Stage Summary:
+- Terminal now has a full command layer (⌘K palette), a second theme (Daylight, persisted, zero-markup via Tailwind v4 CSS-var remap), a live trade tape (Time & Sales), session-level market aggregates (turnover/volume/LASI H-L) with index crosshair, and watchlist-aware screener rows.
+- New files: src/components/theme-provider.tsx, src/components/market/{ThemeToggle,CommandPalette,TimeSales}.tsx. Modified: globals.css, layout.tsx, TerminalApp, Header, Footer, ShortcutsDialog, MarketTab, StockDetail, ScreenerDialog, store.ts, use-keyboard-shortcuts.ts.
+- Shortcuts now: ⌘K palette · / search · ↑↓/jk navigate · B/S trade · P screener · C compare · ? help.
+- Runbook unchanged: Next :3000 (auto), engine :3003 via setsid nohup (full restart after edits; kill by port PID), preview via Caddy :81 (socket.io needs XTransformPort). Radix tabs need agent-browser click @ref (synthetic clicks don't switch tabs).
+- Remaining ideas (priority): i18n (EN/Bembe/Lozi); NextAuth watchlist sync across devices; engine state versioning guard; sound volume/choice options; light-theme fine-tuning for any newly added hardcoded-rgba components (current ones verified); OLED pure-black variant (cheap now — one more var scope).
+- Known minor: screenshots in this sandbox render with a warm color cast and mangled glyphs (display artifact — verified clean via computed styles/tsc); header Compare chip now hidden <sm (by design, palette covers it); palette tab group only on mobile.
+
+---
+Task ID: 12 (cron webDevReview round 8)
+Agent: main coordinator (scheduled review)
+Task: Status assessment, agent-browser QA, OLED theme + 52W chart anchors + alert bell badges + auto mover toasts + engine state versioning + order-book polish.
+
+Work Log:
+- STATUS ASSESSMENT: engine :3003 ticking:true/persist:true, Next :3000 200, gateway :81 200. Baseline QA via :81: 17 stocks connected, live ticks, zero console errors → no pre-existing bugs → feature round.
+- NEW FEATURE 1 — OLED pure-black theme (3rd skin):
+  - globals.css: @custom-variant dark extended to `(&:is(.dark *, .oled *))` so shadcn dark: utilities match under OLED; `.dark` token block merged to `.dark, .oled`; NEW `.oled` scope — --luse-app-bg #000, zinc-950→#000000, zinc-900→#0b0b0d, zinc-800→#1c1c21, zinc-700→#2c2c33, mids softened for legibility on true black; OLED scrollbar variants.
+  - ThemeProvider now themes=['dark','light','oled']; ThemeToggle → header DropdownMenu picker (Dark·Classic terminal / Daylight·Bright office / OLED·Pure black, icons + orange active dot, aria-pressed).
+  - VERIFIED: menu lists 3 options; OLED → html.oled + appBg rgb(0,0,0) + persisted; Daylight still rgb(236,236,239); dark restored.
+  - ⚠️ CRITICAL BUILD GOTCHA (cost ~40min): after consecutive large CSS edits via HMR, Turbopack served a PARTIALLY STALE compiled CSS chunk — new `dark:*:is(.dark *, .oled *)` variant utilities compiled but the new `.oled`/`.dark,.oled` variable blocks were silently missing from the served CSS (verified by curl + python parse; source file correct; a full dev-server restart did NOT fix it). FIX: kill dev tree (kill whole supervisor chain: bun run dev → bash → node next dev → next-server; killing only next-server PID leaves the tree holding .next/dev/lock) + `rm -rf .next` + cold start → all rules compile. RULE: when a CSS rule mysteriously doesn't apply, curl the served chunk and grep it before doubting the markup; if stale, wipe .next.
+- NEW FEATURE 2 — 52W high/low anchor lines on PriceChart:
+  - PriceChart gained optional `fiftyTwoWeek: {high, low}` prop (forwarded to the fullscreen instance too); on daily views (1M/3M/1Y) renders two dashed ReferenceLines (#a1a1aa, 2-5 dash, 0.75 opacity) with tiny "52W H"/"52W L" labels (9px zinc-500, insideBottomLeft/insideTopLeft); default ifOverflow=discard auto-hides them when outside the visible window.
+  - StockDetail passes {profile.fiftyTwoWeekHigh, fiftyTwoWeekLow}.
+  - 🐛 RECHARTS GOTCHA FOUND & FIXED: ReferenceLines inside a `<>fragment</>` child of ComposedChart NEVER RENDER (recharts 2.15 doesn't traverse fragment children when collecting reference elements) — verified via data-* prop probe + DOM; FIX: two direct conditional children (no fragment). Documented in-code. Verified: 2 lines + both labels render on 1Y; domain math (data min/max ±8% pad) keeps the anchors at the top/bottom edges of the 1Y window.
+- NEW FEATURE 3 — Active-alert bell badges:
+  - store: `activeAlertSymbols: string[]` + setActiveAlertSymbols (shallow-equal guarded); use-alert-engine mirrors active alerts into the store on every change.
+  - StocksList rows show a small amber Bell chip next to the symbol when it has an ACTIVE alert (title + sr-only label). VERIFIED: ZANACO row badges (seeded active alert).
+- NEW FEATURE 4 — Auto big-mover toasts:
+  - use-alert-engine subscription: on store updates, any counter whose |day change| crosses ±3% fires ONE toast per symbol per session ("🚀/⚡ SYM ±x.x% today — <name> is a big mover — last K…"). Snapshot consumed silently on mount (only LIVE crossings announce). VERIFIED LIVE: NBL crossed −3.1% during QA → toast fired bottom-right.
+- NEW FEATURE 5 — Engine state versioning guard:
+  - PersistBlob gained `v`; STATE_VERSION=2 constant; saveState writes it; restoreState discards mismatched versions with a log line (old unversioned blobs seed fresh). VERIFIED: engine restarted mid-round (kill by port PID → setsid nohup bun run index.ts) — health ticking:true/persist:true/restoredSession:true (old `bun --hot` process had hot-applied the new save-side code before the kill, so the v=2 blob restored cleanly — guard code path exercised).
+- STYLING DETAIL — OrderBook rows: depth bars animate width (700ms ease-out) on 5s refetch; best-bid/best-ask rows get stronger bar tint (emerald/rose-500/25) + side-tinted hover; other rows neutral hover.
+- Verification: bunx tsc --noEmit 0 src errors; bun run lint clean; agent-browser E2E via :81: theme picker 3-way (computed appBg verified per theme), 52W lines + labels on 1Y, bell badge, mover toast live-fired, mobile 390 overflow 0, zero console errors, engine healthy throughout.
+
+Stage Summary:
+- Terminal now ships 3 themes (dark/Daylight/OLED), 52W context anchors on daily charts, alert-aware stock rows, session-aware mover announcements, and a version-guarded engine persistence layer.
+- Files: globals.css, theme-provider.tsx, ThemeToggle.tsx (picker), PriceChart.tsx (+StockDetail), store.ts, use-alert-engine.ts, StocksList.tsx, OrderBook.tsx, mini-services/market-engine/index.ts.
+- Runbook: Next :3000 (cold rebuild = kill full supervisor chain + rm -rf .next + bun run dev); engine :3003 (kill by port PID, setsid nohup, full restart after edits); preview via Caddy :81.
+- Remaining ideas (priority): i18n (EN/Bemba/Nyanja/Lozi — needs translation research); NextAuth watchlist sync; sound volume/choice options; portfolio benchmark vs LASI; screener sparkline for index row; engine state versioning bump process note (STATE_VERSION=2 in place).
+- Known minor: 52W anchors hidden on 1D (by design — domain would explode); mover threshold fixed at ±3%; theme picker replaces the old binary toggle (⌘K palette unchanged).

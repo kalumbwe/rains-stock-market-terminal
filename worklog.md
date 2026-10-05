@@ -338,3 +338,30 @@ Stage Summary:
 - Runbook: Next :3000 (cold rebuild = kill full supervisor chain + rm -rf .next + bun run dev); engine :3003 (kill by port PID, setsid nohup, full restart after edits); preview via Caddy :81.
 - Remaining ideas (priority): i18n (EN/Bemba/Nyanja/Lozi — needs translation research); NextAuth watchlist sync; sound volume/choice options; portfolio benchmark vs LASI; screener sparkline for index row; engine state versioning bump process note (STATE_VERSION=2 in place).
 - Known minor: 52W anchors hidden on 1D (by design — domain would explode); mover threshold fixed at ±3%; theme picker replaces the old binary toggle (⌘K palette unchanged).
+
+---
+Task ID: 13 (user-requested rebrand)
+Agent: main coordinator (Z.ai Code)
+Task: Official rebrand — uploaded Zambian flag brush-stroke PNG becomes the official system logo; product renamed "LuSE Pulse" → "Rains Stock Market".
+
+Work Log:
+- STATUS: engine :3003 healthy (ticking:true, persist:true, restoredSession:true), Next :3000 200, Caddy :81 200 — no pre-existing bugs, so this round was the user-directed rebrand.
+- LOGO ASSETS (user upload → official mark):
+  - Copied upload to public/logo-zambia-flag.png (360×360 RGBA, 71KB; content bbox 324×174 — wide flag).
+  - Generated PWA icons via PIL: icons/icon-48.png, icon-192.png, icon-512.png (dark vertical gradient #1b1b1f→#0a0a0b rounded-rect bg + flag fitted ~82-86%, soft drop-shadow for depth) + icons/icon-512-maskable.png (full-bleed, flag at 64% for safe zone). GOTCHA: first pass pasted with a single shared x/y pad → flag top-heavy; fixed with separate px/py centering.
+  - Rewrote public/icon.svg and public/logo.svg (logo.svg was an unreferenced stale mark) to embed the composed 512 icon as base64 <image> — crisp official favicon everywhere.
+- BRAND RENAME (grep-verified ZERO "LuSE Pulse" strings remain in src/ + public/):
+  - layout.tsx metadata: title/keywords/applicationName/appleWebApp/openGraph → "Rains Stock Market — Zambia Market Terminal"; icons list now svg + 48/192/512 PNGs, apple → icon-192.
+  - Header.tsx: brand h1 → "Rains Stock Market" (subtitle "ZAMBIA MARKET TERMINAL" kept); Activity icon box replaced by next/image flag (h-9 w-9 object-contain, drop-shadow, priority, decorative alt=""); live document.title suffix → "· Rains Stock Market".
+  - Footer.tsx: flag img (h-4 w-4) + "Rains Stock Market · Zambia Market Terminal".
+  - PortfolioTab export header → "Rains Stock Market — Paper Portfolio Export"; ScreenerDialog export → "Rains Stock Market — Market Screener Export".
+  - public/manifest.webmanifest: name/short_name renamed; icons array now 48/192/512 any + 512 maskable.
+  - Comment headers in lib/market/{indicators,types,format,store}.ts + globals.css theme section comments renamed for consistency.
+- VERIFICATION (agent-browser via Caddy :81): desktop 1280 + mobile 390 screenshots — flag renders in header on both, "Rains Stock Market" fits with no overflow; footer brand correct & sticky; favicon links all resolve (icon.svg 200, pngs 200); live title "LASI 26,029.44 +0.45% · Rains Stock Market"; theme picker exercised Dark→Daylight→Dark (html class + localStorage verified; logo legible on light bg too); console ZERO errors; tsc --noEmit 0 src errors; eslint clean; dev.log only 200s.
+
+Stage Summary:
+- Official identity is now: Zambian flag brush-stroke mark + "Rains Stock Market", applied from favicon/PWA icons through header, footer, metadata, manifest, and CSV export headers; subtitle "Zambia Market Terminal" retained as descriptor.
+- New/changed files: public/logo-zambia-flag.png (new), public/icons/icon-{48,192,512,512-maskable}.png (regenerated), public/icon.svg + public/logo.svg (rewritten), src/app/layout.tsx, src/components/market/{Header,Footer}.tsx, src/components/market/{PortfolioTab,ScreenerDialog}.tsx (export strings), manifest, comment headers in lib/market/* + globals.css.
+- Runbook unchanged: Next :3000 (auto), engine :3003 via setsid nohup, preview via Caddy :81. No engine changes this round.
+- Remaining ideas (priority): i18n (EN/Bemba/Nyanja/Lozi); NextAuth watchlist sync; sound volume/choice options; portfolio benchmark vs LASI; light-theme fine-tuning for any future hardcoded-rgba components.
+- Known minor: sandbox screenshots still render with warm color cast (display artifact only — computed styles verified); maskable icon uses flag at 64% (safe-zone compliant).

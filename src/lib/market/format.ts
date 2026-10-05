@@ -1,5 +1,5 @@
 /**
- * LuSE Pulse — number/time formatters.
+ * Rains Stock Market — number/time formatters.
  * All monetary values are Zambian Kwacha (ZMW, symbol "K").
  * Rendered with monospace + tabular figures on the client.
  */

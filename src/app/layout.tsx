@@ -15,31 +15,32 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LuSE Pulse — Zambia Market Terminal",
+  title: "Rains Stock Market — Zambia Market Terminal",
   description:
     "Real-time simulated LuSE trading terminal: live Zambian equities quotes, LASI index, charts, technicals, screener, paper trading, alerts and market news.",
-  keywords: ["LuSE", "Zambia", "stock market", "LASI", "trading terminal", "market analysis"],
+  keywords: ["LuSE", "Zambia", "Rains Stock Market", "stock market", "LASI", "trading terminal", "market analysis"],
   authors: [{ name: "Z.ai Team" }],
   manifest: "/manifest.webmanifest",
-  applicationName: "LuSE Pulse",
+  applicationName: "Rains Stock Market",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "LuSE Pulse",
+    title: "Rains Stock Market",
   },
   icons: {
     icon: [
       { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icons/icon-48.png", sizes: "48x48", type: "image/png" },
       { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
       { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
     ],
     apple: "/icons/icon-192.png",
   },
   openGraph: {
-    title: "LuSE Pulse — Zambia Market Terminal",
+    title: "Rains Stock Market — Zambia Market Terminal",
     description:
       "Real-time Zambia LuSE market analysis: live quotes, LASI index, charts, screener and paper trading.",
-    siteName: "LuSE Pulse",
+    siteName: "Rains Stock Market",
     type: "website",
   },
 };

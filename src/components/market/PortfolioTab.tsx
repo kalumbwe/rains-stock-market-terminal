@@ -96,7 +96,7 @@ export function PortfolioTab({ portfolio, loading, onSell, onReset }: PortfolioT
       const s = String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    lines.push('LuSE Pulse — Paper Portfolio Export');
+    lines.push('Rains Stock Market — Paper Portfolio Export');
     lines.push(`Generated,${new Date().toISOString()}`);
     lines.push('');
     lines.push('Summary');

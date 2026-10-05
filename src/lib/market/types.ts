@@ -1,5 +1,5 @@
 /**
- * LuSE Pulse — shared market types (bound to shared/api-contract.md v1).
+ * Rains Stock Market — shared market types (bound to shared/api-contract.md v1).
  * Engine snapshot/quote shapes, candles, news, alerts, portfolio.
  */
 

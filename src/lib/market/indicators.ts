@@ -1,5 +1,5 @@
 /**
- * LuSE Pulse — pure technical indicators (no side effects).
+ * Rains Stock Market — pure technical indicators (no side effects).
  */
 
 /** Simple Moving Average of the last `n` closes. Returns null if insufficient data. */

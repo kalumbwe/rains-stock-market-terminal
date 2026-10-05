@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * LuSE Pulse — global client market state (zustand).
+ * Rains Stock Market — global client market state (zustand).
  * Hydrated from the engine socket (`snapshot` / `tick` / `news`) and REST
  * bootstrap. Flash + per-symbol price ring-buffers power sparklines and
  * tick animations.

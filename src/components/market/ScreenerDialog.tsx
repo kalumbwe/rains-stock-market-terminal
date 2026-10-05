@@ -105,7 +105,7 @@ function downloadScreenerCsv(rows: DisplayRow[]) {
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines: string[] = [];
-  lines.push('LuSE Pulse — Market Screener Export');
+  lines.push('Rains Stock Market — Market Screener Export');
   lines.push(`Generated,${new Date().toISOString()}`);
   lines.push('');
   lines.push(
