@@ -27,6 +27,7 @@ import {
   type ScreenerRow,
 } from '@/lib/market/screener';
 import { fmtBig, fmtIndex, fmtK, fmtNum, fmtPct } from '@/lib/market/format';
+import { Sparkline } from './Sparkline';
 import { CorrelationMatrix } from './CorrelationMatrix';
 
 type SortKey =
@@ -61,6 +62,7 @@ const COLUMNS: {
   numeric?: boolean;
 }[] = [
   { key: 'symbol', label: 'Symbol', align: 'left' },
+  { key: 'symbol', label: 'Trend', align: 'left', width: 'hidden sm:table-cell' },
   { key: 'sector', label: 'Sector', align: 'left', width: 'hidden xl:table-cell' },
   { key: 'price', label: 'Price', align: 'right', numeric: true },
   { key: 'changePct', label: 'Chg %', align: 'right', numeric: true },
@@ -129,6 +131,7 @@ export function ScreenerDialog({
 
   // Live quote overlay so the table breathes with the tape.
   const stocks = useMarketStore((s) => s.stocks);
+  const priceHistory = useMarketStore((s) => s.priceHistory);
   const setSelected = useMarketStore((s) => s.setSelected);
 
   const displayRows: DisplayRow[] = useMemo(() => {
@@ -262,7 +265,7 @@ export function ScreenerDialog({
         </div>
 
         {/* Table tab */}
-        <TabsContent value="table" className="mt-0 min-h-0 flex-1">
+        <TabsContent value="table" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="luse-scroll min-h-0 flex-1 overflow-auto">
           {loading && rows === null ? (
             <div className="space-y-2 p-5">
@@ -298,6 +301,8 @@ export function ScreenerDialog({
                     >
                       {i === COLUMNS.length - 1 ? (
                         <span className="text-[10px]">52W</span>
+                      ) : c.label === 'Trend' ? (
+                        <span className="text-[10px]">Trend · 1m</span>
                       ) : (
                         <button
                           type="button"
@@ -342,6 +347,17 @@ export function ScreenerDialog({
                         </div>
                       </td>
                       <td className="hidden px-3 py-2 text-zinc-400 xl:table-cell">{r.sector}</td>
+                      <td className="hidden px-3 py-1.5 sm:table-cell">
+                        <Sparkline
+                          values={
+                            (priceHistory[r.symbol]?.length ?? 0) > 5
+                              ? priceHistory[r.symbol]
+                              : r.sparkline
+                          }
+                          width={72}
+                          height={22}
+                        />
+                      </td>
                       <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums text-zinc-100">
                         {fmtK(price)}
                       </td>
@@ -398,7 +414,7 @@ export function ScreenerDialog({
         </TabsContent>
 
         {/* Correlation matrix tab */}
-        <TabsContent value="correlation" className="mt-0 min-h-0 flex-1 overflow-auto">
+        <TabsContent value="correlation" className="mt-0 min-h-0 flex-1 overflow-auto luse-scroll">
           <CorrelationMatrix onSelect={pickSymbol} />
         </TabsContent>
       </Tabs>

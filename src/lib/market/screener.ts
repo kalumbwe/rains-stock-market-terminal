@@ -24,6 +24,9 @@ export interface ScreenerRow {
   sharesOutstanding: number;
   fiftyTwoWeekHigh: number;
   fiftyTwoWeekLow: number;
+  /** Last ≤60 intraday 1m closes — trend sparkline (fallback; live store
+   *  buffers take precedence in the UI). */
+  sparkline: number[];
 }
 
 export interface ScreenerResponse {

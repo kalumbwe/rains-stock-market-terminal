@@ -1,0 +1,1002 @@
+     1→/**
+     2→ * LuSE Market Engine — in-memory real-time simulation of the Lusaka
+     3→ * Securities Exchange for the Zambia market terminal.
+     4→ *
+     5→ * ONE http server (port 3003) serves both the REST API (shared/api-contract.md
+     6→ * §1) and the socket.io event stream (§2, path '/'). Socket.io attaches to the
+     7→ * same server and hands non-socket.io requests through to the handler below.
+     8→ *
+     9→ * Run: bun index.ts   |   dev: bun --hot index.ts
+    10→ */
+    11→import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+    12→import { readFileSync } from 'node:fs'
+    13→import { join } from 'node:path'
+    14→import { Server } from 'socket.io'
+    15→
+    16→// ---------------------------------------------------------------------------
+    17→// Tuning constants. TICK_MS / NEWS_* are env-overridable so integration tests
+    18→// can speed the sim up; defaults follow the contract.
+    19→// ---------------------------------------------------------------------------
+    20→const PORT = 3003
+    21→const TICK_MS = Number(process.env.TICK_MS ?? 1_500)
+    22→const BOOK_MS = 3_000
+    23→const NEWS_MIN_MS = Number(process.env.NEWS_MIN_MS ?? 45_000)
+    24→const NEWS_MAX_MS = Number(process.env.NEWS_MAX_MS ?? 120_000)
+    25→const INDEX_HISTORY_CAP = 2_000
+    26→const CANDLE_CAP = 1_500 // safety cap (~a full day of 1m bars)
+    27→const NEWS_CAP = 60
+    28→const VIRTUAL_SESSION_HOURS = 5 // candles seeded backwards when market is closed
+    29→const SESSION_LABEL = 'LuSE Live Session (SIM)'
+    30→
+    31→/** Pragmatic scale mapping annualised vol onto one sim step (tick/minute). */
+    32→const SIGMA_STEP_SCALE = 0.011
+    33→/** Weak pull of log-price back toward the boot anchor, per tick (k). */
+    34→const MEAN_REVERSION_K = 0.03
+    35→/** Probability of a ±0.4%–1.2% jump per stock per tick. */
+    36→const JUMP_PROB = 0.002
+    37→
+    38→// ---------------------------------------------------------------------------
+    39→// Types
+    40→// ---------------------------------------------------------------------------
+    41→interface StockCfg {
+    42→  symbol: string
+    43→  name: string
+    44→  sector: string
+    45→  price: number
+    46→  prevClose: number
+    47→  sharesOutstanding: number
+    48→  peRatio: number
+    49→  dividendYield: number
+    50→  eps: number
+    51→  beta: number
+    52→  website: string
+    53→  description: string
+    54→}
+    55→
+    56→interface UniverseMeta {
+    57→  exchange: string
+    58→  exchangeCode: string
+    59→  country: string
+    60→  indexName: string
+    61→  indexCode: string
+    62→  indexValue: number
+    63→  currency: { code: string; symbol: string; name: string }
+    64→  usdRate: number
+    65→  session: {
+    66→    openHourLocal: number
+    67→    openMinLocal: number
+    68→    closeHourLocal: number
+    69→    closeMinLocal: number
+    70→    tz: string
+    71→    utcOffsetMinutes: number
+    72→  }
+    73→  fees: { commissionPct: number; minCommissionZMW: number; levyPct: number }
+    74→}
+    75→
+    76→interface Universe {
+    77→  meta: UniverseMeta
+    78→  stocks: StockCfg[]
+    79→}
+    80→
+    81→type Sentiment = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL'
+    82→type Impact = 'HIGH' | 'MEDIUM' | 'LOW'
+    83→
+    84→interface Candle {
+    85→  t: number // epoch ms, start of the minute bucket
+    86→  o: number
+    87→  h: number
+    88→  l: number
+    89→  c: number
+    90→  v: number
+    91→}
+    92→
+    93→interface BookLevel {
+    94→  price: number
+    95→  size: number
+    96→}
+    97→
+    98→interface NewsItem {
+    99→  id: string
+   100→  headline: string
+   101→  body: string
+   102→  source: string
+   103→  symbols: string[]
+   104→  sentiment: Sentiment
+   105→  impact: Impact
+   106→  publishedAt: string
+   107→}
+   108→
+   109→/** Internal news shape before id/source/publishedAt are attached. */
+   110→type RawNews = {
+   111→  headline: string
+   112→  body: string
+   113→  sentiment: Sentiment
+   114→  impact: Impact
+   115→  symbols?: string[]
+   116→  /** Optional instantaneous kwacha nudge (fractional, e.g. -0.002). */
+   117→  usdDelta?: number
+   118→}
+   119→
+   120→interface StockState {
+   121→  cfg: StockCfg
+   122→  price: number
+   123→  prevClose: number
+   124→  dayOpen: number
+   125→  dayHigh: number
+   126→  dayLow: number
+   127→  volume: number
+   128→  valueTraded: number
+   129→  bid: number
+   130→  ask: number
+   131→  /** Boot reference price for mean reversion & index weights. */
+   132→  anchor: number
+   133→  /** Half-spread denominator: bid/ask = price ∓ price*spreadPct/2. */
+   134→  spreadPct: number
+   135→  /** Per-tick log-return std dev, derived from beta. */
+   136→  sigmaTick: number
+   137→  /** Multiplier on the 50–15 000 random tick volume, by market cap. */
+   138→  volScale: number
+   139→  /** Cap weight in LASI, normalised at boot. */
+   140→  weight: number
+   141→  dir: 1 | 0 | -1
+   142→  candles: Candle[] // ascending by t
+   143→  book: { bids: BookLevel[]; asks: BookLevel[] }
+   144→  lastUpdate: string
+   145→}
+   146→
+   147→// ---------------------------------------------------------------------------
+   148→// Small utils
+   149→// ---------------------------------------------------------------------------
+   150→const round2 = (x: number): number => Math.round(x * 100) / 100
+   151→const rnd = (a: number, b: number): number => a + Math.random() * (b - a)
+   152→const pick = <T>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.length)]
+   153→const chance = (p: number): boolean => Math.random() < p
+   154→
+   155→/** Standard normal sample (Box–Muller). */
+   156→function gauss(): number {
+   157→  let u = 0
+   158→  let v = 0
+   159→  while (u === 0) u = Math.random()
+   160→  while (v === 0) v = Math.random()
+   161→  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
+   162→}
+   163→
+   164→// ---------------------------------------------------------------------------
+   165→// Universe & boot state
+   166→// ---------------------------------------------------------------------------
+   167→const universe = JSON.parse(
+   168→  readFileSync(join(import.meta.dir, '../../shared/luse-stocks.json'), 'utf8'),
+   169→) as Universe
+   170→const meta = universe.meta
+   171→const indexBase = meta.indexValue
+   172→const TZ_OFFSET_MIN = meta.session.utcOffsetMinutes // Lusaka = UTC+2, no DST
+   173→
+   174→const bootMs = Date.now()
+   175→/** Timestamp of the last engine tick — surfaced via /health for liveness checks. */
+   176→let lastTickAt = 0
+   177→let usdRate = meta.usdRate
+   178→
+   179→const caps = universe.stocks.map((s) => s.price * s.sharesOutstanding)
+   180→const minCap = Math.min(...caps)
+   181→const maxCap = Math.max(...caps)
+   182→const totalCap = caps.reduce((a, b) => a + b, 0)
+   183→
+   184→const stockBySymbol = new Map<string, StockState>()
+   185→const stocks: StockState[] = universe.stocks.map((cfg, i) => {
+   186→  // Liquidity proxy in [0,1]: log market-cap rank. Bigger cap → tighter spread.
+   187→  const liquidity = maxCap > minCap ? Math.log(caps[i] / minCap) / Math.log(maxCap / minCap) : 1
+   188→  const sigmaAnnual = 0.15 + 0.13 * Math.abs(cfg.beta)
+   189→  const st: StockState = {
+   190→    cfg,
+   191→    price: cfg.price,
+   192→    prevClose: cfg.prevClose,
+   193→    dayOpen: round2(cfg.prevClose * (1 + (chance(0.5) ? 1 : -1) * rnd(0, 0.003))),
+   194→    dayHigh: cfg.price,
+   195→    dayLow: cfg.price,
+   196→    volume: 0,
+   197→    valueTraded: 0,
+   198→    bid: cfg.price,
+   199→    ask: cfg.price,
+   200→    anchor: cfg.price,
+   201→    spreadPct: 0.0025 - 0.0015 * liquidity, // 0.1%–0.25%
+   202→    sigmaTick: sigmaAnnual * SIGMA_STEP_SCALE,
+   203→    volScale: 0.25 + 1.75 * liquidity,
+   204→    weight: caps[i] / totalCap,
+   205→    dir: 0,
+   206→    candles: [],
+   207→    book: { bids: [], asks: [] },
+   208→    lastUpdate: new Date(bootMs).toISOString(),
+   209→  }
+   210→  st.bid = Math.max(0.01, round2(st.price * (1 - st.spreadPct / 2)))
+   211→  st.ask = round2(st.price * (1 + st.spreadPct / 2))
+   212→  stockBySymbol.set(cfg.symbol, st)
+   213→  return st
+   214→})
+   215→
+   216→const indexHistory: { t: number; v: number }[] = []
+   217→const newsLog: NewsItem[] = [] // newest first
+   218→const pendingImpacts = new Map<string, number>() // symbol → next-tick jump (fractional)
+   219→
+   220→// ---------------------------------------------------------------------------
+   221→// Lusaka session helpers (UTC+2 fixed offset)
+   222→// ---------------------------------------------------------------------------
+   223→interface LusakaParts {
+   224→  y: number
+   225→  mo: number
+   226→  d: number
+   227→  h: number
+   228→  mi: number
+   229→  s: number
+   230→  dow: number
+   231→}
+   232→
+   233→function lusakaParts(ts: number): LusakaParts {
+   234→  const d = new Date(ts + TZ_OFFSET_MIN * 60_000)
+   235→  return {
+   236→    y: d.getUTCFullYear(),
+   237→    mo: d.getUTCMonth(),
+   238→    d: d.getUTCDate(),
+   239→    h: d.getUTCHours(),
+   240→    mi: d.getUTCMinutes(),
+   241→    s: d.getUTCSeconds(),
+   242→    dow: d.getUTCDay(),
+   243→  }
+   244→}
+   245→
+   246→const pad2 = (n: number): string => String(n).padStart(2, '0')
+   247→
+   248→function lusakaClock(ts: number): string {
+   249→  const p = lusakaParts(ts)
+   250→  return `${pad2(p.h)}:${pad2(p.mi)}:${pad2(p.s)}`
+   251→}
+   252→
+   253→/** OPEN on weekdays 09:30–15:30 Lusaka, else CLOSED. */
+   254→function isInSession(ts: number): boolean {
+   255→  const p = lusakaParts(ts)
+   256→  if (p.dow === 0 || p.dow === 6) return false
+   257→  const mins = p.h * 60 + p.mi
+   258→  const open = meta.session.openHourLocal * 60 + meta.session.openMinLocal
+   259→  const close = meta.session.closeHourLocal * 60 + meta.session.closeMinLocal
+   260→  return mins >= open && mins < close
+   261→}
+   262→
+   263→// ---------------------------------------------------------------------------
+   264→// Session candle seeding — GBM walk per stock, bridged to end at cfg.price
+   265→// ---------------------------------------------------------------------------
+   266→function seedSession(): number {
+   267→  const now = Date.now()
+   268→  let startMs: number
+   269→  if (isInSession(now)) {
+   270→    const p = lusakaParts(now)
+   271→    const openMinAbs = meta.session.openHourLocal * 60 + meta.session.openMinLocal
+   272→    startMs = Date.UTC(p.y, p.mo, p.d) + (openMinAbs - TZ_OFFSET_MIN) * 60_000
+   273→  } else {
+   274→    // Outside hours / weekend: virtual session so charts are never empty.
+   275→    startMs = now - VIRTUAL_SESSION_HOURS * 3_600_000
+   276→  }
+   277→  const startBucket = Math.floor(startMs / 60_000) * 60_000
+   278→  const nowBucket = Math.floor(now / 60_000) * 60_000
+   279→  const nMinutes = Math.max(0, Math.round((nowBucket - startBucket) / 60_000))
+   280→
+   281→  // Per-stock minute price paths (index 0..nMinutes). A Brownian-bridge style
+   282→  // correction on the log path guarantees the walk ends exactly at cfg.price.
+   283→  const paths: number[][] = stocks.map((s) => {
+   284→    const path = [s.dayOpen]
+   285→    if (nMinutes > 0) {
+   286→      const logs = [Math.log(s.dayOpen)]
+   287→      for (let m = 1; m <= nMinutes; m++) logs.push(logs[m - 1] + s.sigmaTick * gauss())
+   288→      const end = Math.log(s.cfg.price)
+   289→      for (let m = 1; m <= nMinutes; m++) {
+   290→        path.push(Math.exp(logs[m] + ((end - logs[nMinutes]) * m) / nMinutes))
+   291→      }
+   292→    }
+   293→    return path
+   294→  })
+   295→
+   296→  // Build 1m candles + running volume/valueTraded, and day high/low.
+   297→  stocks.forEach((s, i) => {
+   298→    const p = paths[i]
+   299→    for (let m = 0; m <= nMinutes; m++) {
+   300→      const t = startBucket + m * 60_000
+   301→      const o = round2(m === 0 ? p[0] : p[m - 1])
+   302→      const c = round2(p[m])
+   303→      const h = round2(Math.max(o, c) * (1 + rnd(0, 0.0015)))
+   304→      const l = round2(Math.min(o, c) * (1 - rnd(0, 0.0015)))
+   305→      const v = Math.max(1, Math.floor(rnd(50, 15_000) * s.volScale))
+   306→      s.candles.push({ t, o, h, l, c, v })
+   307→      s.volume += v
+   308→      s.valueTraded += v * c
+   309→    }
+   310→    s.dayHigh = round2(Math.max(...s.candles.map((c) => c.h), s.price))
+   311→    s.dayLow = round2(Math.min(...s.candles.map((c) => c.l), s.price))
+   312→  })
+   313→
+   314→  // Seed the index history from the same minute paths.
+   315→  for (let m = 0; m <= nMinutes; m++) {
+   316→    let rel = 0
+   317→    for (let i = 0; i < stocks.length; i++) rel += stocks[i].weight * (paths[i][m] / stocks[i].anchor)
+   318→    indexHistory.push({ t: startBucket + m * 60_000, v: round2(indexBase * rel) })
+   319→  }
+   320→  return nMinutes
+   321→}
+   322→
+   323→// ---------------------------------------------------------------------------
+   324→// LASI index
+   325→// ---------------------------------------------------------------------------
+   326→function currentIndexValue(): number {
+   327→  let rel = 0
+   328→  for (const s of stocks) rel += s.weight * (s.price / s.anchor)
+   329→  return round2(indexBase * rel)
+   330→}
+   331→
+   332→/** index.prevClose = indexBase × Σ(w_i × prevClose_i / anchor_i). */
+   333→const indexPrevCloseValue = round2(
+   334→  indexBase *
+   335→    stocks.reduce((acc, s) => acc + s.weight * (s.prevClose / s.anchor), 0),
+   336→)
+   337→
+   338→// ---------------------------------------------------------------------------
+   339→// Order books — regenerated every few seconds, stable in between
+   340→// ---------------------------------------------------------------------------
+   341→function regenBooks(): void {
+   342→  for (const s of stocks) {
+   343→    const bids: BookLevel[] = []
+   344→    const asks: BookLevel[] = []
+   345→    for (let i = 0; i < 5; i++) {
+   346→      // Level offsets: level 1 ≈ 0.05%, deepening to ≤ 0.30% at level 5.
+   347→      const off = Math.min(0.003, (i + 1) * 0.0005 + rnd(0, 0.0004))
+   348→      const bidRef = bids.length ? bids[bids.length - 1].price : s.price
+   349→      let bp = round2(s.price * (1 - off))
+   350→      if (bp >= bidRef) bp = round2(bidRef - 0.01) // keep ladder strict after rounding
+   351→      bids.push({ price: Math.max(0.01, bp), size: 100 + Math.floor(Math.random() * 49_901) })
+   352→
+   353→      const askRef = asks.length ? asks[asks.length - 1].price : s.price
+   354→      let ap = round2(s.price * (1 + off))
+   355→      if (ap <= askRef) ap = round2(askRef + 0.01)
+   356→      asks.push({ price: ap, size: 100 + Math.floor(Math.random() * 49_901) })
+   357→    }
+   358→    s.book = { bids, asks }
+   359→  }
+   360→}
+   361→
+   362→// ---------------------------------------------------------------------------
+   363→// News — Zambia-themed template generator; news moves prices on next tick
+   364→// ---------------------------------------------------------------------------
+   365→const IMPACT_RANGE: Record<Impact, readonly [number, number]> = {
+   366→  HIGH: [0.008, 0.015],
+   367→  MEDIUM: [0.004, 0.009],
+   368→  LOW: [0.002, 0.005],
+   369→}
+   370→
+   371→type Template = () => RawNews
+   372→
+   373→function companyTemplates(s: StockState): Template[] {
+   374→  const sym = s.cfg.symbol
+   375→  const nm = s.cfg.name
+   376→  const sector = s.cfg.sector
+   377→  const generic: Template[] = [
+   378→    () => ({
+   379→      headline: `${nm} full-year earnings beat consensus as EPS climbs ${rnd(6, 28).toFixed(1)}%`,
+   380→      body: `The board credited firmer margins and tight cost control, and signalled an improved final payout. Analysts had modelled slower growth for the ${sector.toLowerCase()} counter.`,
+   381→      sentiment: 'POSITIVE',
+   382→      impact: 'HIGH',
+   383→    }),
+   384→    () => ({
+   385→      headline: `${nm} flags profit warning: interim earnings to fall up to ${rnd(15, 40).toFixed(0)}%`,
+   386→      body: `Management cited input cost inflation and a weaker kwacha on imported stock. The counter opens under pressure when the market next sits.`,
+   387→      sentiment: 'NEGATIVE',
+   388→      impact: 'HIGH',
+   389→    }),
+   390→    () => ({
+   391→      headline: `${nm} declares interim dividend of K${round2(s.price * rnd(0.02, 0.09))} per share`,
+   392→      body: `The payout is payable in about 45 days to shareholders on the register. The yield remains among the more defensive stories on the LuSE.`,
+   393→      sentiment: 'POSITIVE',
+   394→      impact: 'MEDIUM',
+   395→    }),
+   396→    () => ({
+   397→      headline: `Broker lifts ${sym} target price to K${round2(s.price * rnd(1.06, 1.22))} on valuation appeal`,
+   398→      body: `A Lusaka-based research desk moved the counter to BUY, noting cheap relative earnings and improving liquidity in the stock.`,
+   399→      sentiment: 'POSITIVE',
+   400→      impact: 'MEDIUM',
+   401→    }),
+   402→    () => ({
+   403→      headline: `Analysts cut ${sym} to UNDERWEIGHT on margin pressure`,
+   404→      body: `The desk flagged softening volumes and rising finance costs into the next reporting season, trimming its target price accordingly.`,
+   405→      sentiment: 'NEGATIVE',
+   406→      impact: 'MEDIUM',
+   407→    }),
+   408→    () => ({
+   409→      headline: `${nm} wins K${rnd(12, 480).toFixed(0)}m supply contract, guides to stronger H2 volumes`,
+   410→      body: `The multi-year award covers deliveries across Lusaka and the Copperbelt. Management said ramp-up begins this quarter.`,
+   411→      sentiment: 'POSITIVE',
+   412→      impact: 'MEDIUM',
+   413→    }),
+   414→    () => ({
+   415→      headline: `${nm} AGM approves K${rnd(20, 900).toFixed(0)}m capex programme`,
+   416→      body: `Shareholders endorsed the expansion plan with minor amendments. Execution timelines were left unchanged.`,
+   417→      sentiment: 'NEUTRAL',
+   418→      impact: 'LOW',
+   419→    }),
+   420→  ]
+   421→
+   422→  const bySector: Record<string, Template[]> = {
+   423→    Mining: [
+   424→      () => ({
+   425→        headline: `Copper cathode output up ${rnd(4, 18).toFixed(1)}% as smelter utilisation improves`,
+   426→        body: `Higher throughputs across the Copperbelt lifted royalty flows to the group. Management maintained full-year production guidance.`,
+   427→        sentiment: 'POSITIVE',
+   428→        impact: 'MEDIUM',
+   429→      }),
+   430→      () => ({
+   431→        headline: `Soft cobalt and emerald prices squeeze mining royalties`,
+   432→        body: `Lower realised prices on secondary minerals offset the copper tailwind. Group revenue guidance was trimmed slightly.`,
+   433→        sentiment: 'NEGATIVE',
+   434→        impact: 'MEDIUM',
+   435→      }),
+   436→    ],
+   437→    Energy: [
+   438→      () => ({
+   439→        headline: `CEC signs revised bulk supply agreement with ZESCO, tariff gap narrows`,
+   440→        body: `The new structure improves cost-reflectivity on Copperbelt transmission. Analysts see clearer earnings visibility through next year.`,
+   441→        sentiment: 'POSITIVE',
+   442→        impact: 'HIGH',
+   443→      }),
+   444→      () => ({
+   445→        headline: `ZESCO load-shedding hours extended, dispatch volumes to fall ${rnd(3, 12).toFixed(1)}%`,
+   446→        body: `Low water levels at Kariba continue to constrain generation. Energy users on the Copperbelt face longer outage windows this month.`,
+   447→        sentiment: 'NEGATIVE',
+   448→        impact: 'MEDIUM',
+   449→      }),
+   450→      () => ({
+   451→        headline: `Partial Power Purchase Programme onboards ${rnd(60, 220).toFixed(0)}MW of solar`,
+   452→        body: `New independent capacity should ease outage hours for industrial customers. Ratings agencies view the reform as credit-positive.`,
+   453→        sentiment: 'POSITIVE',
+   454→        impact: 'MEDIUM',
+   455→      }),
+   456→    ],
+   457→    Telecommunications: [
+   458→      () => ({
+   459→        headline: `Airtel Money transactions jump ${rnd(9, 35).toFixed(1)}%, data revenue firms`,
+   460→        body: `Mobile money float balances hit a new high as adoption deepens in rural provinces. The operator reaffirmed its capex plan.`,
+   461→        sentiment: 'POSITIVE',
+   462→        impact: 'MEDIUM',
+   463→      }),
+   464→      () => ({
+   465→        headline: `Regulator caps data tariffs, ARPU outlook trimmed`,
+   466→        body: `ZICTA's new pricing framework compresses headline data rates. Brokers see modest near-term revenue risk for the tower-heavy operator.`,
+   467→        sentiment: 'NEGATIVE',
+   468→        impact: 'MEDIUM',
+   469→      }),
+   470→    ],
+   471→    Banking: [
+   472→      () => ({
+   473→        headline: `NPL ratio improves to ${rnd(3.5, 9.5).toFixed(1)}% as provisioning eases`,
+   474→        body: `Asset quality continues to recover on restructured corporate books. Credit costs should fall into the next reporting season.`,
+   475→        sentiment: 'POSITIVE',
+   476→        impact: 'MEDIUM',
+   477→      }),
+   478→      () => ({
+   479→        headline: `Corporate lending margins compress as kwacha volatility fades`,
+   480→        body: `Tighter spreads on USD-linked facilities offset cheaper funding. Treasury income remains supported by the T-bill book.`,
+   481→        sentiment: 'NEGATIVE',
+   482→        impact: 'LOW',
+   483→      }),
+   484→    ],
+   485→    'Consumer Staples': [
+   486→      () => ({
+   487→        headline: `Nakambala crush ramps up, output guidance raised ${rnd(3, 12).toFixed(1)}%`,
+   488→        body: `Good irrigation water and cane age profile support the upgrade. Regional export allocations into COMESA were raised.`,
+   489→        sentiment: 'POSITIVE',
+   490→        impact: 'MEDIUM',
+   491→      }),
+   492→      () => ({
+   493→        headline: `Maize price slump eases feed costs for agro-processors`,
+   494→        body: `A bumper harvest has pulled grain prices to multi-season lows. Margins should benefit through the next two quarters.`,
+   495→        sentiment: 'POSITIVE',
+   496→        impact: 'LOW',
+   497→      }),
+   498→      () => ({
+   499→        headline: `Excise duty hike looms for opaque beer, volumes at risk`,
+   500→        body: `Proposed fiscal changes would lift excise on traditional beverages. Brewers warn of price pass-through in informal markets.`,
+   501→        sentiment: 'NEGATIVE',
+   502→        impact: 'MEDIUM',
+   503→      }),
+   504→    ],
+   505→    'Consumer Discretionary': [
+   506→      () => ({
+   507→        headline: `Retail turnover up ${rnd(4, 15).toFixed(1)}% as Usave-style expansion deepens`,
+   508→        body: `Footfall improved across Lusaka and the Copperbelt with local sourcing now above target. Group kept its store rollout plan.`,
+   509→        sentiment: 'POSITIVE',
+   510→        impact: 'MEDIUM',
+   511→      }),
+   512→      () => ({
+   513→        headline: `Retail footfall softens on subdued consumer spending`,
+   514→        body: `Discretionary baskets were weaker month-on-month, though basics held up. Management maintained full-year guidance.`,
+   515→        sentiment: 'NEGATIVE',
+   516→        impact: 'LOW',
+   517→      }),
+   518→    ],
+   519→    Industrials: [
+   520→      () => ({
+   521→        headline: `Cement dispatches up ${rnd(5, 16).toFixed(1)}% on Copperbelt–DRC corridor demand`,
+   522→        body: `Infrastructure works and mine construction underpin volumes. Dispatches into the DRC reached a period high.`,
+   523→        sentiment: 'POSITIVE',
+   524→        impact: 'MEDIUM',
+   525→      }),
+   526→      () => ({
+   527→        headline: `Timber auction clears at premium prices as orderbook swells`,
+   528→        body: `Export demand for treated pine remains firm. Plantation replanting stays ahead of schedule.`,
+   529→        sentiment: 'POSITIVE',
+   530→        impact: 'MEDIUM',
+   531→      }),
+   532→    ],
+   533→    'Real Estate': [
+   534→      () => ({
+   535→        headline: `Occupancy at flagship retail assets lifts to ${rnd(78, 96).toFixed(0)}%`,
+   536→        body: `New leases were signed at re-rated rentals after refurbishments. Management flagged further tenant interest in Q4.`,
+   537→        sentiment: 'POSITIVE',
+   538→        impact: 'LOW',
+   539→      }),
+   540→    ],
+   541→  }
+   542→
+   543→  return [...generic, ...(bySector[sector] ?? [])]
+   544→}
+   545→
+   546→function macroTemplates(): Template[] {
+   547→  return [
+   548→    () => ({
+   549→      headline: `Kwacha firms to K${(usdRate - rnd(0.05, 0.35)).toFixed(2)} per USD as copper receipts surge`,
+   550→      body: `Dealers cited strong mining-sector dollar sales and improved BoZ supply. The local unit posted its best session in weeks.`,
+   551→      sentiment: 'POSITIVE',
+   552→      impact: 'MEDIUM',
+   553→      symbols: [],
+   554→      usdDelta: -rnd(0.001, 0.003),
+   555→    }),
+   556→    () => ({
+   557→      headline: `Kwacha slips to K${(usdRate + rnd(0.05, 0.35)).toFixed(2)}/USD on import demand`,
+   558→      body: `Energy and fertiliser importers dominated the ask side while offshore flows slowed. Traders expect range-bound trade near term.`,
+   559→      sentiment: 'NEGATIVE',
+   560→      impact: 'MEDIUM',
+   561→      symbols: [],
+   562→      usdDelta: rnd(0.001, 0.003),
+   563→    }),
+   564→    () => ({
+   565→      headline: `Bank of Zambia holds policy rate at ${rnd(8.5, 10.5).toFixed(2)}%`,
+   566→      body: `The MPC kept a data-dependent stance as disinflation progresses. Analysts see room for easing later in the cycle.`,
+   567→      sentiment: 'NEUTRAL',
+   568→      impact: 'MEDIUM',
+   569→      symbols: [],
+   570→    }),
+   571→    () => ({
+   572→      headline: `BoZ cuts policy rate by 25bps as inflation cools`,
+   573→      body: `The committee noted easing food prices and a stable kwacha. Commercial banks are expected to follow with lower lending rates.`,
+   574→      sentiment: 'POSITIVE',
+   575→      impact: 'MEDIUM',
+   576→      symbols: [],
+   577→    }),
+   578→    () => ({
+   579→      headline: `Copper jumps ${rnd(1.2, 3.6).toFixed(1)}% on LME as Chinese stimulus lifts sentiment`,
+   580→      body: `Base metals rallied across the board with zinc and cobalt also firmer. Zambian mining revenue forecasts were revised up.`,
+   581→      sentiment: 'POSITIVE',
+   582→      impact: 'HIGH',
+   583→      symbols: ['ZCCM-IH'],
+   584→    }),
+   585→    () => ({
+   586→      headline: `LME copper falls ${rnd(1.0, 2.8).toFixed(1)}% on a stronger dollar`,
+   587→      body: `Profit-taking hit industrial metals after last week's rally. Mining counters on the LuSE opened softer in sympathy.`,
+   588→      sentiment: 'NEGATIVE',
+   589→      impact: 'MEDIUM',
+   590→      symbols: ['ZCCM-IH'],
+   591→    }),
+   592→    () => ({
+   593→      headline: `ZESCO extends load-shedding to ${rnd(8, 14).toFixed(0)} hours daily amid low Kariba levels`,
+   594→      body: `The utility cited falling reservoir inflows and constrained imports. Households and small businesses face longer outage windows.`,
+   595→      sentiment: 'NEGATIVE',
+   596→      impact: 'HIGH',
+   597→      symbols: [],
+   598→    }),
+   599→    () => ({
+   600→      headline: `Monthly inflation eases to ${rnd(6.8, 9.6).toFixed(1)}% – CSO`,
+   601→      body: `Food and transport driven prints cooled for a third straight month. The mix keeps the BoZ easing path intact.`,
+   602→      sentiment: 'NEUTRAL',
+   603→      impact: 'LOW',
+   604→      symbols: [],
+   605→    }),
+   606→    () => ({
+   607→      headline: `Met Office forecasts normal-to-above-normal rains for the coming farming season`,
+   608→      body: `La Niña conditions favour strong rainfall across southern provinces. Agribusiness counters should benefit from the outlook.`,
+   609→      sentiment: 'POSITIVE',
+   610→      impact: 'MEDIUM',
+   611→      symbols: ['ZSUG', 'ZMBF'],
+   612→    }),
+   613→    () => ({
+   614→      headline: `LuSE turnover hits K${rnd(8, 95).toFixed(1)}m as foreign investors return`,
+   615→      body: `Mining and telecom counters dominated the value traded. The bourse has now posted net foreign inflows for a third week.`,
+   616→      sentiment: 'NEUTRAL',
+   617→      impact: 'LOW',
+   618→      symbols: [],
+   619→    }),
+   620→    () => ({
+   621→      headline: `T-bill yields ease ${rnd(10, 60).toFixed(0)}bps at BoZ auction as liquidity improves`,
+   622→      body: `Bid coverage firmed across the 91-day and 182-day tenors. Lower government funding costs should filter to bank margins.`,
+   623→      sentiment: 'POSITIVE',
+   624→      impact: 'LOW',
+   625→      symbols: [],
+   626→    }),
+   627→    () => ({
+   628→      headline: `Fuel pump prices held as Indeni pipeline flows normalise`,
+   629→      body: `The energy regulator left petrol and diesel unchanged this month. Distributors see steadier working-capital planning ahead.`,
+   630→      sentiment: 'NEUTRAL',
+   631→      impact: 'LOW',
+   632→      symbols: ['PUMA'],
+   633→    }),
+   634→  ]
+   635→}
+   636→
+   637→/** Renders a random Zambia-themed headline. */
+   638→function generateNews(): NewsItem {
+   639→  const finalize = (raw: RawNews, symbols: string[]): NewsItem => {
+   640→    // Kwacha headlines nudge the FX rate immediately.
+   641→    if (raw.usdDelta !== undefined) {
+   642→      usdRate = round2(Math.min(60, Math.max(5, usdRate * (1 + raw.usdDelta))))
+   643→    }
+   644→    return {
+   645→      id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+   646→      headline: raw.headline,
+   647→      body: raw.body,
+   648→      source: 'LuSE Wire',
+   649→      symbols,
+   650→      sentiment: raw.sentiment,
+   651→      impact: raw.impact,
+   652→      publishedAt: new Date().toISOString(),
+   653→    }
+   654→  }
+   655→
+   656→  if (chance(0.55)) {
+   657→    // Company news: always tagged with the related symbol (sometimes a peer).
+   658→    const s = pick(stocks)
+   659→    const symbols = chance(0.15) ? [s.cfg.symbol, pick(stocks).cfg.symbol] : [s.cfg.symbol]
+   660→    return finalize(pick(companyTemplates(s))(), symbols)
+   661→  }
+   662→  // Macro news: templates either tag related symbols or stay [] for macro.
+   663→  const raw = pick(macroTemplates())()
+   664→  return finalize(raw, raw.symbols ?? [])
+   665→}
+   666→
+   667→/** Queue an immediate price jump for the affected stocks (applied next tick). */
+   668→function applyNewsImpact(item: NewsItem): void {
+   669→  const sign =
+   670→    item.sentiment === 'POSITIVE' ? 1 : item.sentiment === 'NEGATIVE' ? -1 : chance(0.5) ? 1 : -1
+   671→  const [lo, hi] = IMPACT_RANGE[item.impact]
+   672→  const base = rnd(lo, hi)
+   673→  const marketWide = item.symbols.length === 0
+   674→  // Macro news (no symbols) moves the whole tape at roughly half strength.
+   675→  const targets = marketWide ? stocks.map((s) => s.cfg.symbol) : item.symbols
+   676→  const scale = marketWide ? 0.5 : 1
+   677→  for (const symbol of targets) {
+   678→    const pct = sign * base * scale * rnd(0.6, 1.4)
+   679→    pendingImpacts.set(symbol, (pendingImpacts.get(symbol) ?? 0) + pct)
+   680→  }
+   681→}
+   682→
+   683→function emitNews(): void {
+   684→  const item = generateNews()
+   685→  applyNewsImpact(item)
+   686→  newsLog.unshift(item)
+   687→  if (newsLog.length > NEWS_CAP) newsLog.pop()
+   688→  io.emit('news', item)
+   689→  console.log(`[news] (${item.sentiment}/${item.impact}) ${item.headline}`)
+   690→}
+   691→
+   692→function scheduleNews(): void {
+   693→  const delay = rnd(NEWS_MIN_MS, NEWS_MAX_MS)
+   694→  newsTimer = setTimeout(() => {
+   695→    emitNews()
+   696→    scheduleNews()
+   697→  }, delay)
+   698→}
+   699→
+   700→// ---------------------------------------------------------------------------
+   701→// Tick loop
+   702→// ---------------------------------------------------------------------------
+   703→function tickVolume(s: StockState): number {
+   704→  return Math.max(1, Math.floor(rnd(50, 15_000) * s.volScale))
+   705→}
+   706→
+   707→function tick(): void {
+   708→  lastTickAt = Date.now()
+   709→  const now = Date.now()
+   710→  const bucket = Math.floor(now / 60_000) * 60_000
+   711→
+   712→  for (const s of stocks) {
+   713→    // 1) Price: GBM step + weak mean reversion + rare jump + queued news impact.
+   714→    const pending = pendingImpacts.get(s.cfg.symbol)
+   715→    if (pending !== undefined) pendingImpacts.delete(s.cfg.symbol)
+   716→    const reversion = MEAN_REVERSION_K * Math.log(s.anchor / s.price)
+   717→    const jump = chance(JUMP_PROB) ? (chance(0.5) ? -1 : 1) * rnd(0.004, 0.012) : 0
+   718→    const ret = reversion + s.sigmaTick * gauss() + jump + (pending ?? 0)
+   719→
+   720→    const prev = s.price
+   721→    s.price = round2(Math.max(0.01, s.price * Math.exp(ret)))
+   722→    if (s.price > s.dayHigh) s.dayHigh = s.price
+   723→    if (s.price < s.dayLow) s.dayLow = s.price
+   724→    s.dir = s.price > prev ? 1 : s.price < prev ? -1 : 0
+   725→
+   726→    // 2) Volume & value traded.
+   727→    const vol = tickVolume(s)
+   728→    s.volume += vol
+   729→    s.valueTraded += vol * s.price
+   730→
+   731→    // 3) Re-quote bid/ask around the new price with a little jitter.
+   732→    const half = s.price * (s.spreadPct / 2) * rnd(0.85, 1.15)
+   733→    s.bid = round2(s.price - half)
+   734→    if (s.bid >= s.price) s.bid = round2(s.price - 0.01)
+   735→    s.bid = Math.max(0.01, s.bid)
+   736→    s.ask = round2(s.price + half)
+   737→    if (s.ask <= s.price) s.ask = round2(s.price + 0.01)
+   738→    s.lastUpdate = new Date(now).toISOString()
+   739→
+   740→    // 4) Live 1m candle bucket.
+   741→    const last = s.candles[s.candles.length - 1]
+   742→    if (last && last.t === bucket) {
+   743→      last.c = s.price
+   744→      if (s.price > last.h) last.h = s.price
+   745→      if (s.price < last.l) last.l = s.price
+   746→      last.v += vol
+   747→    } else {
+   748→      s.candles.push({ t: bucket, o: s.price, h: s.price, l: s.price, c: s.price, v: vol })
+   749→      if (s.candles.length > CANDLE_CAP) s.candles.shift()
+   750→    }
+   751→  }
+   752→
+   753→  // 5) USD/ZMW random walk: ±0.05% steps with a gentle pull to the meta anchor.
+   754→  usdRate = round2(usdRate * (1 + rnd(-0.0005, 0.0005)) + (meta.usdRate - usdRate) * 0.02)
+   755→
+   756→  // 6) Index point per tick (cap history length).
+   757→  const idxValue = currentIndexValue()
+   758→  indexHistory.push({ t: now, v: idxValue })
+   759→  if (indexHistory.length > INDEX_HISTORY_CAP) {
+   760→    indexHistory.splice(0, indexHistory.length - INDEX_HISTORY_CAP)
+   761→  }
+   762→
+   763→  io.emit('tick', buildTick(now, idxValue))
+   764→}
+   765→
+   766→// ---------------------------------------------------------------------------
+   767→// Snapshot / payload builders (contract shapes)
+   768→// ---------------------------------------------------------------------------
+   769→function indexBlock(idxValue: number, withHistory: boolean) {
+   770→  const change = round2(idxValue - indexPrevCloseValue)
+   771→  return {
+   772→    code: meta.indexCode,
+   773→    value: idxValue,
+   774→    prevClose: indexPrevCloseValue,
+   775→    change,
+   776→    changePct: round2((change / indexPrevCloseValue) * 100),
+   777→    ...(withHistory ? { history: indexHistory } : {}),
+   778→  }
+   779→}
+   780→
+   781→function stockSnapshot(s: StockState) {
+   782→  const change = round2(s.price - s.prevClose)
+   783→  return {
+   784→    symbol: s.cfg.symbol,
+   785→    name: s.cfg.name,
+   786→    sector: s.cfg.sector,
+   787→    price: s.price,
+   788→    prevClose: s.prevClose,
+   789→    dayOpen: s.dayOpen,
+   790→    dayHigh: s.dayHigh,
+   791→    dayLow: s.dayLow,
+   792→    change,
+   793→    changePct: round2((change / s.prevClose) * 100),
+   794→    volume: s.volume,
+   795→    valueTraded: round2(s.valueTraded),
+   796→    bid: s.bid,
+   797→    ask: s.ask,
+   798→    marketCap: round2(s.price * s.cfg.sharesOutstanding),
+   799→    lastUpdate: s.lastUpdate,
+   800→  }
+   801→}
+   802→
+   803→/** Same object as GET /api/stocks — also emitted on socket connect. */
+   804→function getSnapshot() {
+   805→  const now = Date.now()
+   806→  return {
+   807→    serverTime: new Date(now).toISOString(),
+   808→    session: {
+   809→      status: isInSession(now) ? ('OPEN' as const) : ('CLOSED' as const),
+   810→      label: SESSION_LABEL,
+   811→      lusakaTime: lusakaClock(now),
+   812→    },
+   813→    usdRate: round2(usdRate),
+   814→    index: indexBlock(currentIndexValue(), true),
+   815→    stocks: stocks.map(stockSnapshot),
+   816→  }
+   817→}
+   818→
+   819→/** Contract §2 tick payload. */
+   820→function buildTick(now: number, idxValue: number) {
+   821→  return {
+   822→    serverTime: new Date(now).toISOString(),
+   823→    usdRate: round2(usdRate),
+   824→    index: indexBlock(idxValue, false),
+   825→    stocks: stocks.map((s) => {
+   826→      const change = round2(s.price - s.prevClose)
+   827→      return {
+   828→        symbol: s.cfg.symbol,
+   829→        price: s.price,
+   830→        change,
+   831→        changePct: round2((change / s.prevClose) * 100),
+   832→        dayHigh: s.dayHigh,
+   833→        dayLow: s.dayLow,
+   834→        volume: s.volume,
+   835→        valueTraded: round2(s.valueTraded),
+   836→        bid: s.bid,
+   837→        ask: s.ask,
+   838→        dir: s.dir,
+   839→      }
+   840→    }),
+   841→  }
+   842→}
+   843→
+   844→// ---------------------------------------------------------------------------
+   845→// HTTP server — node http + manual URL routing (no express), CORS allow-all
+   846→// ---------------------------------------------------------------------------
+   847→const CORS_HEADERS: Record<string, string> = {
+   848→  'Access-Control-Allow-Origin': '*',
+   849→  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+   850→  'Access-Control-Allow-Headers': 'Content-Type',
+   851→}
+   852→
+   853→function sendJson(res: ServerResponse, status: number, payload: unknown): void {
+   854→  const body = JSON.stringify(payload)
+   855→  res.writeHead(status, {
+   856→    ...CORS_HEADERS,
+   857→    'Content-Type': 'application/json; charset=utf-8',
+   858→    'Cache-Control': 'no-store',
+   859→    'Content-Length': Buffer.byteLength(body),
+   860→  })
+   861→  res.end(body)
+   862→}
+   863→
+   864→function handleRequest(req: IncomingMessage, res: ServerResponse): void {
+   865→  try {
+   866→    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
+   867→    const path = url.pathname
+   868→
+   869→    if (req.method === 'OPTIONS') {
+   870→      res.writeHead(204, CORS_HEADERS)
+   871→      res.end()
+   872→      return
+   873→    }
+   874→    if (req.method !== 'GET') {
+   875→      sendJson(res, 405, { error: 'method-not-allowed' })
+   876→      return
+   877→    }
+   878→
+   879→    if (path === '/health') {
+   880→      const tickAgeMs = lastTickAt > 0 ? Date.now() - lastTickAt : null
+   881→      sendJson(res, 200, {
+   882→        ok: true,
+   883→        serverTime: new Date().toISOString(),
+   884→        uptimeSec: Math.floor((Date.now() - bootMs) / 1000),
+   885→        tickAgeMs,
+   886→        ticking: tickAgeMs === null ? false : tickAgeMs < 10_000,
+   887→      })
+   888→      return
+   889→    }
+   890→
+   891→    if (path === '/api/stocks') {
+   892→      sendJson(res, 200, getSnapshot())
+   893→      return
+   894→    }
+   895→
+   896→    if (path === '/api/news') {
+   897→      const raw = url.searchParams.get('limit')
+   898→      let limit = 40
+   899→      if (raw !== null) {
+   900→        limit = Number(raw)
+   901→        if (!Number.isInteger(limit) || limit < 1) {
+   902→          sendJson(res, 400, { error: 'invalid-limit' })
+   903→          return
+   904→        }
+   905→      }
+   906→      limit = Math.min(limit, NEWS_CAP)
+   907→      sendJson(res, 200, { news: newsLog.slice(0, limit) })
+   908→      return
+   909→    }
+   910→
+   911→    const m = path.match(/^\/api\/stocks\/([^/]+)\/(candles|orderbook)$/)
+   912→    if (m) {
+   913→      const symbol = decodeURIComponent(m[1]).toUpperCase()
+   914→      const s = stockBySymbol.get(symbol)
+   915→      if (!s) {
+   916→        sendJson(res, 404, { error: 'stock-not-found' })
+   917→        return
+   918→      }
+   919→      if (m[2] === 'orderbook') {
+   920→        sendJson(res, 200, { symbol: s.cfg.symbol, bids: s.book.bids, asks: s.book.asks })
+   921→        return
+   922→      }
+   923→      const interval = url.searchParams.get('interval') ?? '1m'
+   924→      if (interval !== '1m') {
+   925→        sendJson(res, 400, { error: 'invalid-interval', message: 'only interval=1m is supported' })
+   926→        return
+   927→      }
+   928→      sendJson(res, 200, { symbol: s.cfg.symbol, interval: '1m', candles: s.candles })
+   929→      return
+   930→    }
+   931→
+   932→    sendJson(res, 404, { error: 'not-found' })
+   933→  } catch (err) {
+   934→    console.error('[http] error handling request:', err)
+   935→    sendJson(res, 500, { error: 'internal-error' })
+   936→  }
+   937→}
+   938→
+   939→// ---------------------------------------------------------------------------
+   940→// Wire everything together
+   941→// ---------------------------------------------------------------------------
+   942→const httpServer = createServer(handleRequest)
+   943→
+   944→const io = new Server(httpServer, {
+   945→  // DO NOT change the path — Caddy forwards `/?XTransformPort=3003` here.
+   946→  path: '/',
+   947→  cors: { origin: '*', methods: ['GET', 'POST'] },
+   948→  pingTimeout: 60_000,
+   949→  pingInterval: 25_000,
+   950→})
+   951→
+   952→// With socket.io path '/', engine.io's attach-time `check()`
+   953→// (`path === req.url.slice(0, path.length)`) matches EVERY http request, so
+   954→// plain REST would end up in engine.io ("Transport unknown") and never reach
+   955→// the handler above. Patch the engine.io instance so only genuine socket.io
+   956→// requests (they always carry `EIO=` in the query) are handed to engine.io;
+   957→// everything else falls through to the REST handler. WebSocket upgrades are
+   958→// routed via the server's 'upgrade' event and are not affected by this.
+   959→const eioHandleRequest = io.engine.handleRequest.bind(io.engine)
+   960→io.engine.handleRequest = (req, res) => {
+   961→  if ((req.url ?? '').includes('EIO=')) {
+   962→    eioHandleRequest(req, res)
+   963→  } else {
+   964→    handleRequest(req, res)
+   965→  }
+   966→}
+   967→
+   968→io.on('connection', (socket) => {
+   969→  console.log(`[ws] client connected: ${socket.id}`)
+   970→  socket.emit('snapshot', getSnapshot())
+   971→  socket.on('disconnect', (reason) => {
+   972→    console.log(`[ws] client disconnected: ${socket.id} (${reason})`)
+   973→  })
+   974→})
+   975→
+   976→let newsTimer: ReturnType<typeof setTimeout> | undefined
+   977→
+   978→const seededMinutes = seedSession()
+   979→regenBooks()
+   980→
+   981→httpServer.listen(PORT, () => {
+   982→  const now = Date.now()
+   983→  console.log(`[engine] LuSE market engine listening on :${PORT}`)
+   984→  console.log(
+   985→    `[engine] session=${isInSession(now) ? 'OPEN' : 'CLOSED'} lusaka=${lusakaClock(now)} seeded ${seededMinutes + 1} minute candles/stock`,
+   986→  )
+   987→})
+   988→
+   989→setInterval(tick, TICK_MS)
+   990→setInterval(regenBooks, BOOK_MS)
+   991→scheduleNews()
+   992→
+   993→// Graceful shutdown
+   994→function shutdown(signal: string): void {
+   995→  console.log(`[engine] ${signal} received, shutting down...`)
+   996→  if (newsTimer) clearTimeout(newsTimer)
+   997→  httpServer.close(() => process.exit(0))
+   998→  setTimeout(() => process.exit(0), 2_000).unref()
+   999→}
+  1000→process.on('SIGTERM', () => shutdown('SIGTERM'))
+  1001→process.on('SIGINT', () => shutdown('SIGINT'))
+  1002→

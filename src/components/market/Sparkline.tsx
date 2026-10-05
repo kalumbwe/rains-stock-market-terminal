@@ -1,6 +1,6 @@
 'use client';
 
-import { memo } from 'react';
+import { useId, memo } from 'react';
 
 interface SparklineProps {
   values: number[];
@@ -10,10 +10,12 @@ interface SparklineProps {
 }
 
 /**
- * Tiny inline SVG sparkline (no recharts) for stock list rows.
+ * Tiny inline SVG sparkline (no recharts) for stock list + screener rows.
  * Color: emerald when the series ends above its start, rose otherwise.
  */
 function SparklineImpl({ values, width = 64, height = 24, positive }: SparklineProps) {
+  // Unique gradient id per instance — several sparklines can share a page.
+  const uid = useId();
   const pts = values.length >= 2 ? values.slice(-40) : [];
   if (pts.length < 2) {
     return (
@@ -53,7 +55,7 @@ function SparklineImpl({ values, width = 64, height = 24, positive }: SparklineP
 
   const up = positive ?? pts[pts.length - 1] >= pts[0];
   const stroke = up ? '#34d399' : '#fb7185';
-  const fillId = up ? 'sparkUp' : 'sparkDown';
+  const fillId = `spark-${uid}`;
 
   return (
     <svg

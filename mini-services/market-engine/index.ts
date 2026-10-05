@@ -10,8 +10,13 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { Database } from 'bun:sqlite'
 import { Server } from 'socket.io'
+
+// Standard TS-friendly equivalent of bun's `import.meta.dir`.
+const ENGINE_DIR = dirname(fileURLToPath(import.meta.url))
 
 // ---------------------------------------------------------------------------
 // Tuning constants. TICK_MS / NEWS_* are env-overridable so integration tests
@@ -27,6 +32,12 @@ const CANDLE_CAP = 1_500 // safety cap (~a full day of 1m bars)
 const NEWS_CAP = 60
 const VIRTUAL_SESSION_HOURS = 5 // candles seeded backwards when market is closed
 const SESSION_LABEL = 'LuSE Live Session (SIM)'
+
+// Session persistence — the engine restores today's in-progress session after
+// a restart instead of re-seeding a fresh virtual one, so live charts, the
+// tape, day stats and the news log survive process restarts.
+const PERSIST_MS = 15_000
+const PERSIST_DB_PATH = join(ENGINE_DIR, '../../db/custom.db')
 
 /** Pragmatic scale mapping annualised vol onto one sim step (tick/minute). */
 const SIGMA_STEP_SCALE = 0.011
@@ -165,7 +176,7 @@ function gauss(): number {
 // Universe & boot state
 // ---------------------------------------------------------------------------
 const universe = JSON.parse(
-  readFileSync(join(import.meta.dir, '../../shared/luse-stocks.json'), 'utf8'),
+  readFileSync(join(ENGINE_DIR, '../../shared/luse-stocks.json'), 'utf8'),
 ) as Universe
 const meta = universe.meta
 const indexBase = meta.indexValue
@@ -216,6 +227,133 @@ const stocks: StockState[] = universe.stocks.map((cfg, i) => {
 const indexHistory: { t: number; v: number }[] = []
 const newsLog: NewsItem[] = [] // newest first
 const pendingImpacts = new Map<string, number>() // symbol → next-tick jump (fractional)
+
+// ---------------------------------------------------------------------------
+// Session persistence — bun:sqlite-backed single-row JSON blob in db/custom.db
+// ---------------------------------------------------------------------------
+interface PersistBlob {
+  savedAt: string
+  lusakaDate: string
+  usdRate: number
+  stocks: Record<
+    string,
+    {
+      price: number
+      dayOpen: number
+      dayHigh: number
+      dayLow: number
+      volume: number
+      valueTraded: number
+      anchor: number
+      candles: Candle[]
+    }
+  >
+  indexHistory: { t: number; v: number }[]
+  newsLog: NewsItem[]
+}
+
+let persistDb: Database | null = null
+try {
+  persistDb = new Database(PERSIST_DB_PATH, { create: true })
+  persistDb.run(
+    'CREATE TABLE IF NOT EXISTS engine_state (id INTEGER PRIMARY KEY CHECK (id = 1), value TEXT NOT NULL, saved_at TEXT NOT NULL)',
+  )
+  console.log(`[engine] persistence ready at ${PERSIST_DB_PATH}`)
+} catch (err) {
+  // Persistence is best-effort — never block the engine on DB problems.
+  persistDb = null
+  console.error('[engine] persistence disabled (db open failed):', err)
+}
+
+function lusakaDateStr(ts: number): string {
+  const p = lusakaParts(ts) // hoisted-use safe: function declarations bind early
+  return `${p.y}-${pad2(p.mo + 1)}-${pad2(p.d)}`
+}
+
+function saveState(): void {
+  if (!persistDb) return
+  try {
+    const blob: PersistBlob = {
+      savedAt: new Date().toISOString(),
+      lusakaDate: lusakaDateStr(Date.now()),
+      usdRate,
+      stocks: Object.fromEntries(
+        stocks.map((s) => [
+          s.cfg.symbol,
+          {
+            price: s.price,
+            dayOpen: s.dayOpen,
+            dayHigh: s.dayHigh,
+            dayLow: s.dayLow,
+            volume: s.volume,
+            valueTraded: s.valueTraded,
+            anchor: s.anchor,
+            candles: s.candles.slice(-CANDLE_CAP),
+          },
+        ]),
+      ),
+      indexHistory: indexHistory.slice(-INDEX_HISTORY_CAP),
+      newsLog: newsLog.slice(0, NEWS_CAP),
+    }
+    persistDb.run(
+      'INSERT OR REPLACE INTO engine_state (id, value, saved_at) VALUES (1, ?, ?)',
+      [JSON.stringify(blob), blob.savedAt],
+    )
+  } catch (err) {
+    console.error('[engine] state save failed:', err)
+  }
+}
+
+/**
+ * Restore today's session from the last save. Returns false (fresh session)
+ * when nothing is stored, the DB is unavailable, or the snapshot is from a
+ * different Lusaka calendar day.
+ */
+function restoreState(): boolean {
+  if (!persistDb) return false
+  try {
+    const row = persistDb
+      .query('SELECT value FROM engine_state WHERE id = 1')
+      .get() as { value: string } | null
+    if (!row?.value) return false
+    const blob = JSON.parse(row.value) as PersistBlob
+    if (blob.lusakaDate !== lusakaDateStr(Date.now())) return false
+    if (!blob.stocks || typeof blob.usdRate !== 'number') return false
+
+    let restoredAny = false
+    for (const s of stocks) {
+      const saved = blob.stocks[s.cfg.symbol]
+      if (!saved || !Array.isArray(saved.candles) || saved.candles.length === 0) continue
+      s.price = round2(saved.price)
+      s.dayOpen = round2(saved.dayOpen)
+      s.dayHigh = round2(saved.dayHigh)
+      s.dayLow = round2(saved.dayLow)
+      s.volume = Math.max(0, Math.floor(saved.volume))
+      s.valueTraded = Number(saved.valueTraded) || 0
+      s.anchor = Number(saved.anchor) > 0 ? Number(saved.anchor) : s.cfg.price
+      s.dir = 0
+      s.candles = saved.candles.slice(-CANDLE_CAP)
+      s.lastUpdate = new Date().toISOString()
+      restoredAny = true
+    }
+    if (!restoredAny) return false
+
+    usdRate = blob.usdRate
+    if (Array.isArray(blob.indexHistory)) {
+      indexHistory.push(...blob.indexHistory.slice(-INDEX_HISTORY_CAP))
+    }
+    if (Array.isArray(blob.newsLog)) {
+      newsLog.push(...blob.newsLog.slice(0, NEWS_CAP))
+    }
+    console.log(
+      `[engine] restored today's session (${blob.savedAt}) — ${indexHistory.length} index pts, ${newsLog.length} news items`,
+    )
+    return true
+  } catch (err) {
+    console.error('[engine] state restore failed, starting fresh:', err)
+    return false
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Lusaka session helpers (UTC+2 fixed offset)
@@ -796,6 +934,8 @@ function stockSnapshot(s: StockState) {
     bid: s.bid,
     ask: s.ask,
     marketCap: round2(s.price * s.cfg.sharesOutstanding),
+    /** Last ≤60 1m closes — powers the screener trend sparkline. */
+    history: s.candles.slice(-60).map((c) => c.c),
     lastUpdate: s.lastUpdate,
   }
 }
@@ -884,6 +1024,8 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
         uptimeSec: Math.floor((Date.now() - bootMs) / 1000),
         tickAgeMs,
         ticking: tickAgeMs === null ? false : tickAgeMs < 10_000,
+        persist: persistDb !== null,
+        restoredSession,
       })
       return
     }
@@ -975,25 +1117,33 @@ io.on('connection', (socket) => {
 
 let newsTimer: ReturnType<typeof setTimeout> | undefined
 
-const seededMinutes = seedSession()
+// Boot: restore today's session if one was saved, otherwise seed a fresh one.
+const restoredSession = restoreState()
+const seededMinutes = restoredSession ? 0 : seedSession()
 regenBooks()
 
 httpServer.listen(PORT, () => {
   const now = Date.now()
   console.log(`[engine] LuSE market engine listening on :${PORT}`)
   console.log(
-    `[engine] session=${isInSession(now) ? 'OPEN' : 'CLOSED'} lusaka=${lusakaClock(now)} seeded ${seededMinutes + 1} minute candles/stock`,
+    `[engine] session=${isInSession(now) ? 'OPEN' : 'CLOSED'} lusaka=${lusakaClock(now)} ${
+      restoredSession
+        ? 'restored persisted session'
+        : `seeded ${seededMinutes + 1} minute candles/stock`
+    }`,
   )
 })
 
 setInterval(tick, TICK_MS)
 setInterval(regenBooks, BOOK_MS)
+setInterval(saveState, PERSIST_MS)
 scheduleNews()
 
 // Graceful shutdown
 function shutdown(signal: string): void {
   console.log(`[engine] ${signal} received, shutting down...`)
   if (newsTimer) clearTimeout(newsTimer)
+  saveState()
   httpServer.close(() => process.exit(0))
   setTimeout(() => process.exit(0), 2_000).unref()
 }

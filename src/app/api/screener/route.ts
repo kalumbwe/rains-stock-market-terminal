@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
  *
  * 200 → { asOf, rows: [{ symbol, name, sector, price, prevClose, changePct,
  *          volume, valueTraded, marketCap, peRatio, dividendYield, eps, beta,
- *          sharesOutstanding, fiftyTwoWeekHigh, fiftyTwoWeekLow }] }
+ *          sharesOutstanding, fiftyTwoWeekHigh, fiftyTwoWeekLow, sparkline }] }
  * 503 → { error: 'engine-unavailable' }
  */
 export async function GET() {
@@ -68,6 +68,8 @@ export async function GET() {
         sharesOutstanding: f?.sharesOutstanding ?? 0,
         fiftyTwoWeekHigh: r?.high ?? round2(q.dayHigh),
         fiftyTwoWeekLow: r?.low ?? round2(q.dayLow),
+        /** Intraday 1m closes (≤60 pts) for the screener trend column. */
+        sparkline: Array.isArray(q.history) ? q.history : [],
       }
     })
 

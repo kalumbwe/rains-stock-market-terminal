@@ -8,7 +8,7 @@
 
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { History, Loader2, PieChart as PieChartIcon, RotateCcw, Wallet } from 'lucide-react';
+import { History, Loader2, PieChart as PieChartIcon, RotateCcw, Wallet, Download } from 'lucide-react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   AlertDialog,
@@ -24,14 +24,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { useMarketStore } from '@/lib/market/store';
 import {
   fmtDateTime,
@@ -95,6 +87,54 @@ export function PortfolioTab({ portfolio, loading, onSell, onReset }: PortfolioT
   const pnl = totalValue - initialCash;
   const pnlPct = initialCash > 0 ? (pnl / initialCash) * 100 : 0;
   const pnlColor = pnl > 0 ? 'text-emerald-400' : pnl < 0 ? 'text-rose-400' : 'text-zinc-400';
+
+  /** Download the whole paper account (summary + positions + trades) as CSV. */
+  const exportCsv = () => {
+    if (cash === null) return;
+    const lines: string[] = [];
+    const esc = (v: string | number) => {
+      const s = String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    lines.push('LuSE Pulse — Paper Portfolio Export');
+    lines.push(`Generated,${new Date().toISOString()}`);
+    lines.push('');
+    lines.push('Summary');
+    lines.push(`Cash,${cash.toFixed(2)}`);
+    lines.push(`Equity,${equity.toFixed(2)}`);
+    lines.push(`Total,${totalValue.toFixed(2)}`);
+    lines.push(`P&L,${pnl.toFixed(2)}`);
+    lines.push(`P&L %,${pnlPct.toFixed(2)}`);
+    lines.push('');
+    lines.push('Positions');
+    lines.push('Symbol,Quantity,Avg Cost,Last,Unrealized P&L');
+    for (const p of positions) {
+      const live = stocks[p.symbol]?.price ?? p.avgCost;
+      const upl = (live - p.avgCost) * p.quantity;
+      lines.push(`${p.symbol},${p.quantity},${p.avgCost.toFixed(2)},${live.toFixed(2)},${upl.toFixed(2)}`);
+    }
+    lines.push('');
+    lines.push('Trades');
+    lines.push('Time,Side,Symbol,Quantity,Price,Gross Value,Fees');
+    for (const t of portfolio?.trades ?? []) {
+      lines.push(
+        [t.createdAt, t.side, t.symbol, t.quantity, t.price.toFixed(2), t.grossValue.toFixed(2), t.fees.toFixed(2)]
+          .map(esc)
+          .join(','),
+      );
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const d = new Date();
+    const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    a.href = url;
+    a.download = `luse_portfolio_${stamp}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
 
   /* ----- Analytics: sector allocation (incl. cash) + trading stats ----- */
   const allocation = useMemo<AllocationSlice[]>(() => {
@@ -177,12 +217,21 @@ export function PortfolioTab({ portfolio, loading, onSell, onReset }: PortfolioT
               </div>
             </div>
 
-            <div className="mt-3 flex items-center justify-between gap-2">
-              <p className="text-[10px] italic text-zinc-600">
-                Paper trading — K100,000 virtual cash.
-              </p>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
+            <div className="mt-3 flex flex-col items-stretch gap-2 border-t border-zinc-800/70 pt-2.5">
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loading || cash === null}
+                  onClick={exportCsv}
+                  className="h-8 flex-1 border-zinc-800 bg-zinc-950 text-xs text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none"
+                  aria-label="Export portfolio as CSV"
+                >
+                  <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                  Export CSV
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
                   <Button
                     variant="outline"
                     size="sm"
@@ -220,8 +269,12 @@ export function PortfolioTab({ portfolio, loading, onSell, onReset }: PortfolioT
                       Reset account
                     </AlertDialogAction>
                   </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+              <p className="text-center text-[10px] italic text-zinc-600">
+                Paper trading — K100,000 virtual cash.
+              </p>
             </div>
           </>
         )}
@@ -357,60 +410,49 @@ export function PortfolioTab({ portfolio, loading, onSell, onReset }: PortfolioT
             No open positions — buy something from the terminal.
           </p>
         ) : (
-          <div className="luse-scroll max-h-72 overflow-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-zinc-800 hover:bg-transparent">
-                  <TableHead className="h-8 text-[10px] uppercase tracking-wider text-zinc-500">Symbol</TableHead>
-                  <TableHead className="h-8 text-right text-[10px] uppercase tracking-wider text-zinc-500">Qty</TableHead>
-                  <TableHead className="h-8 text-right text-[10px] uppercase tracking-wider text-zinc-500">Avg Cost</TableHead>
-                  <TableHead className="h-8 text-right text-[10px] uppercase tracking-wider text-zinc-500">Last</TableHead>
-                  <TableHead className="h-8 text-right text-[10px] uppercase tracking-wider text-zinc-500">P&L</TableHead>
-                  <TableHead className="h-8 w-14 text-right text-[10px] uppercase tracking-wider text-zinc-500">
-                    <span className="sr-only">Sell</span>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {positions.map((p) => {
-                  const live = stocks[p.symbol]?.price ?? p.avgCost;
-                  const upl = (live - p.avgCost) * p.quantity;
-                  const uplColor =
-                    upl > 0 ? 'text-emerald-400' : upl < 0 ? 'text-rose-400' : 'text-zinc-400';
-                  return (
-                    <TableRow key={p.id} className="border-zinc-800/70">
-                      <TableCell className="py-2 font-mono text-xs font-bold text-zinc-100">
-                        {p.symbol}
-                      </TableCell>
-                      <TableCell className="py-2 text-right font-mono text-xs tabular-nums text-zinc-300">
-                        {p.quantity.toLocaleString()}
-                      </TableCell>
-                      <TableCell className="py-2 text-right font-mono text-xs tabular-nums text-zinc-400">
-                        {fmtK(p.avgCost)}
-                      </TableCell>
-                      <TableCell className="py-2 text-right font-mono text-xs tabular-nums text-zinc-100">
-                        {fmtK(live)}
-                      </TableCell>
-                      <TableCell className={`py-2 whitespace-nowrap text-right font-mono text-xs font-semibold tabular-nums ${uplColor}`}>
-                        {fmtSignedMoney(upl)}
-                      </TableCell>
-                      <TableCell className="py-2 text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => onSell(p.symbol)}
-                          className="h-7 border-rose-500/40 bg-rose-500/10 px-2 text-[11px] font-semibold text-rose-400 hover:bg-rose-500/20 hover:text-rose-300"
-                          aria-label={`Sell ${p.symbol}`}
-                        >
-                          Sell
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
+          <ul className="luse-scroll max-h-72 space-y-1.5 overflow-y-auto p-2" aria-label="Position rows">
+            {positions.map((p) => {
+              const live = stocks[p.symbol]?.price ?? p.avgCost;
+              const upl = (live - p.avgCost) * p.quantity;
+              const uplPct = p.avgCost > 0 ? ((live - p.avgCost) / p.avgCost) * 100 : 0;
+              const uplColor =
+                upl > 0 ? 'text-emerald-400' : upl < 0 ? 'text-rose-400' : 'text-zinc-400';
+              return (
+                <li
+                  key={p.id}
+                  className="rounded-lg bg-zinc-950/60 px-2.5 py-2 ring-1 ring-zinc-800/70 transition-colors hover:ring-zinc-700"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold text-zinc-100">{p.symbol}</span>
+                    <span className="font-mono text-[10px] tabular-nums text-zinc-500">
+                      {p.quantity.toLocaleString()} shs
+                    </span>
+                    <span className={`ml-auto whitespace-nowrap font-mono text-xs font-semibold tabular-nums ${uplColor}`}>
+                      {fmtSignedMoney(upl)}
+                      <span className="ml-1 text-[10px] font-normal opacity-80">
+                        ({fmtPct(uplPct)})
+                      </span>
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onSell(p.symbol)}
+                      className="h-7 shrink-0 border-rose-500/40 bg-rose-500/10 px-2.5 text-[11px] font-semibold text-rose-400 hover:bg-rose-500/20 hover:text-rose-300"
+                      aria-label={`Sell ${p.symbol}`}
+                    >
+                      Sell
+                    </Button>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 font-mono text-[10px] tabular-nums text-zinc-500">
+                    <span>avg {fmtK(p.avgCost)}</span>
+                    <span aria-hidden="true">→</span>
+                    <span className="text-zinc-300">last {fmtK(live)}</span>
+                    <span className="ml-auto">{stocks[p.symbol]?.sector}</span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </section>
 

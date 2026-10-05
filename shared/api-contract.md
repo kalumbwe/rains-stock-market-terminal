@@ -40,12 +40,16 @@ Full market snapshot:
       "volume": 125000, "valueTraded": 1178000,
       "bid": 9.42, "ask": 9.44,
       "marketCap": 4976211000,
+      "history": [9.41, 9.42, 9.43],
       "lastUpdate": "ISO"
     }
   ]
 }
 ```
-Notes: `marketCap = price * sharesOutstanding`. `change` vs `prevClose`. `index.history` holds intraday index points (append one point per tick, cap 2000).
+Notes: `marketCap = price * sharesOutstanding`. `change` vs `prevClose`. `index.history` holds intraday index points (append one point per tick, cap 2000). `history` = last ≤60 1m closes per stock (screener trend sparkline; snapshots only, never in `tick`).
+
+### Session persistence (v2)
+The engine persists its in-progress session (prices, day stats, anchors, 1m candles, index history, news log, USD/ZMW) to `db/custom.db` table `engine_state` every 15s and on graceful shutdown. On boot, if the save is from the same Lusaka calendar day, the session is restored instead of re-seeded; otherwise a fresh session is seeded. `GET /health` exposes `persist: boolean` and `restoredSession: boolean`.
 
 ### GET /api/stocks/:symbol/candles?interval=1m
 Intraday candles for the current session (minute buckets; seeded at boot back to session open, then live):
@@ -128,6 +132,10 @@ trades desc by createdAt, max 50. GET may be slow if engine down — never block
   - SELL: require position with quantity >= qty else 400 `{ "error": "insufficient-shares" }`. Cash += gross - fees; realizedPnl += (price - avgCost)*qty - fees; quantity reduced (delete position at 0).
   - 200 → `{ "trade": {...}, "cash": ..., "position": {...}|null }`; record Trade row. 503 if engine down.
 - POST /api/portfolio/reset → reset cash to initial 100000, delete positions & trades → `{ "ok": true }`.
+
+### GET /api/screener → 200
+Merged screener row per listed company: engine snapshot ⨯ Prisma fundamentals ⨯ DailyPrice 52w aggregate.
+`{ "asOf": "ISO", "rows": [{ "symbol","name","sector","price","prevClose","changePct","volume","valueTraded","marketCap","peRatio","dividendYield","eps","beta","sharesOutstanding","fiftyTwoWeekHigh","fiftyTwoWeekLow","sparkline": [closes...] }] }` — `sparkline` = last ≤60 1m closes from the engine snapshot. 503 `{ "error": "engine-unavailable" }` when the engine is down.
 
 ## 4) PRISMA MODELS (authoritative: prisma/schema.prisma)
 Stock, DailyPrice, NewsItem, WatchlistItem, Alert, Position, CashAccount, Trade — as defined in schema (see schema.prisma). Import db via `import { db } from '@/lib/db'`.

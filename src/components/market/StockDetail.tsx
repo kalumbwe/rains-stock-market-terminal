@@ -15,6 +15,7 @@ import { PriceChart } from './PriceChart';
 import { StatsGrid } from './StatsGrid';
 import { TechnicalsCard } from './TechnicalsCard';
 import { OrderBook } from './OrderBook';
+import { SymbolNews } from './SymbolNews';
 import { useMarketStore } from '@/lib/market/store';
 import { fmtK, fmtPct, fmtSignedK } from '@/lib/market/format';
 import type { StockDetailResponse } from '@/lib/market/types';
@@ -206,6 +207,26 @@ export function StockDetail({ symbol, onTrade }: StockDetailProps) {
             />
           </div>
         </div>
+
+        {/* Live bid / ask / spread strip */}
+        {quote ? (
+          <div
+            className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-800/70 pt-2.5 font-mono text-[11px] tabular-nums"
+            aria-label="Live quote"
+          >
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/25 bg-emerald-500/[0.07] px-2 py-1 text-emerald-400">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-500/70">Bid</span>
+              {fmtK(quote.bid)}
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-rose-500/25 bg-rose-500/[0.07] px-2 py-1 text-rose-400">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-rose-500/70">Ask</span>
+              {fmtK(quote.ask)}
+            </span>
+            <span className="text-zinc-600">
+              spread {fmtK(Math.round((quote.ask - quote.bid) * 100) / 100)}
+            </span>
+          </div>
+        ) : null}
       </section>
 
       <PriceChart symbol={symbol} />
@@ -221,6 +242,8 @@ export function StockDetail({ symbol, onTrade }: StockDetailProps) {
       <TechnicalsCard symbol={symbol} />
 
       <OrderBook symbol={symbol} />
+
+      <SymbolNews symbol={symbol} />
     </div>
   );
 }

@@ -51,6 +51,8 @@ export interface EngineQuote {
   bid: number
   ask: number
   marketCap: number
+  /** Last ≤60 1m closes (screener trend sparkline source). */
+  history?: number[]
   lastUpdate: string
 }
 

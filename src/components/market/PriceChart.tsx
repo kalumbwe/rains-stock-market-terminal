@@ -17,15 +17,17 @@ import {
   Cell,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
-import { Download, LineChart as LineChartIcon, ChartCandlestick, Maximize2 } from 'lucide-react';
+import { Download, LineChart as LineChartIcon, ChartCandlestick, Maximize2, Scale } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { smaSeries } from '@/lib/market/indicators';
+import { useMarketStore } from '@/lib/market/store';
 import { fmtK, fmtNum, fmtTime } from '@/lib/market/format';
 import type { Candle, CandleInterval } from '@/lib/market/types';
 
@@ -44,6 +46,8 @@ interface ChartPoint {
   wick: [number, number];
   body: [number, number];
   sma20: number | null;
+  /** Cumulative VWAP (intraday 1D only, else null). */
+  vwap: number | null;
 }
 
 const RANGE_LIMITS: Record<Exclude<Range, '1D'>, number> = {
@@ -101,6 +105,11 @@ function PriceTooltip({
         <span>L {fmtK(p.l)}</span>
         <span>C {fmtK(p.close)}</span>
       </div>
+      {p.vwap !== null ? (
+        <div className="mt-0.5 font-mono tabular-nums text-fuchsia-400/90">
+          VWAP {fmtK(p.vwap)}
+        </div>
+      ) : null}
       <div className="mt-1 border-t border-zinc-800 pt-1 font-mono tabular-nums text-zinc-500">
         Vol {fmtNum(p.v)}
       </div>
@@ -138,11 +147,15 @@ export function PriceChart({
 }) {
   const [range, setRange] = useState<Range>('1D');
   const [showMa, setShowMa] = useState(true);
+  const [showVwap, setShowVwap] = useState(true);
   const [candles, setCandles] = useState<Candle[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const aliveRef = useRef(true);
+
+  // Prev close for the 1D reference line (live quote from the socket store).
+  const prevClose = useMarketStore((s) => s.stocks[symbol]?.prevClose ?? null);
 
   const isDaily = range !== '1D';
   const fullscreen = variant === 'fullscreen';
@@ -185,19 +198,29 @@ export function PriceChart({
     if (!candles) return [];
     const closes = candles.map((c) => c.c);
     const ma = smaSeries(closes, 20);
-    return candles.map((c, i) => ({
-      t: c.t,
-      label: isDaily ? dayLabel(c.t, range === '1Y') : timeLabel(c.t),
-      close: c.c,
-      o: c.o,
-      h: c.h,
-      l: c.l,
-      v: c.v,
-      up: c.c >= c.o,
-      wick: [c.l, c.h] as [number, number],
-      body: [Math.min(c.o, c.c), Math.max(c.o, c.c)] as [number, number],
-      sma20: ma[i],
-    }));
+    // Cumulative VWAP over the intraday session.
+    let cumPV = 0;
+    let cumV = 0;
+    return candles.map((c, i) => {
+      const typical = (c.h + c.l + c.c) / 3;
+      cumPV += typical * c.v;
+      cumV += c.v;
+      const vwap = isDaily ? null : cumV > 0 ? cumPV / cumV : null;
+      return {
+        t: c.t,
+        label: isDaily ? dayLabel(c.t, range === '1Y') : timeLabel(c.t),
+        close: c.c,
+        o: c.o,
+        h: c.h,
+        l: c.l,
+        v: c.v,
+        up: c.c >= c.o,
+        wick: [c.l, c.h] as [number, number],
+        body: [Math.min(c.o, c.c), Math.max(c.o, c.c)] as [number, number],
+        sma20: ma[i],
+        vwap: vwap !== null ? Math.round(vwap * 100) / 100 : null,
+      };
+    });
   }, [candles, isDaily, range]);
 
   // Candle geometry adapts to series density so 1Y never overlaps.
@@ -247,10 +270,26 @@ export function PriceChart({
           <ChartCandlestick className="h-4 w-4 text-orange-500" aria-hidden="true" />
           <h3 className="text-sm font-semibold text-zinc-200">Price Chart</h3>
           <span className="rounded bg-zinc-800 px-1.5 py-px text-[10px] font-medium uppercase tracking-wider text-zinc-400">
-            {range === '1D' ? '1m candles' : 'OHLC candles'}
+            {range === '1D' ? '1m candles · VWAP' : 'OHLC candles'}
           </span>
         </div>
         <div className="flex items-center gap-1.5">
+          {!isDaily && (
+            <button
+              type="button"
+              onClick={() => setShowVwap((v) => !v)}
+              aria-pressed={showVwap}
+              aria-label="Toggle VWAP overlay"
+              className={`flex h-7 items-center gap-1 rounded-md border px-2 font-mono text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-fuchsia-500 ${
+                showVwap
+                  ? 'border-fuchsia-500/50 bg-fuchsia-500/15 text-fuchsia-400'
+                  : 'border-zinc-800 bg-zinc-950/60 text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <Scale className="h-3 w-3" aria-hidden="true" />
+              VWAP
+            </button>
+          )}
           {isDaily && (
             <button
               type="button"
@@ -429,6 +468,28 @@ export function PriceChart({
                   content={<PriceTooltip isDaily={false} />}
                   cursor={{ stroke: '#f97316', strokeOpacity: 0.3 }}
                 />
+                {/* Previous close reference (dashed zinc) */}
+                {prevClose !== null ? (
+                  <ReferenceLine
+                    y={prevClose}
+                    stroke="#a1a1aa"
+                    strokeDasharray="4 4"
+                    strokeOpacity={0.55}
+                  />
+                ) : null}
+                {/* Session VWAP (dashed fuchsia) */}
+                {showVwap ? (
+                  <Line
+                    type="monotone"
+                    dataKey="vwap"
+                    stroke="#e879f9"
+                    strokeWidth={1.3}
+                    strokeDasharray="5 3"
+                    dot={false}
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+                ) : null}
                 <Area
                   type="monotone"
                   dataKey="close"
