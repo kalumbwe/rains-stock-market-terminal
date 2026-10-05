@@ -6,7 +6,7 @@
  * single useAlertEngine instance owned by the terminal root.
  */
 
-import { useState } from 'react';
+import { useCallback, useState, useSyncExternalStore } from 'react';
 import { motion } from 'framer-motion';
 import {
   ArrowDown,
@@ -16,6 +16,8 @@ import {
   BellRing,
   CheckCircle2,
   Loader2,
+  Play,
+  SlidersHorizontal,
   Target,
   Trash2,
   Volume2,
@@ -32,8 +34,27 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Slider } from '@/components/ui/slider';
 import { fmtDateTime, fmtK } from '@/lib/market/format';
 import { useMarketStore } from '@/lib/market/store';
+import {
+  ALERT_SOUND_KINDS,
+  playAlertBeep,
+  readAlertSoundKind,
+  readAlertVolume,
+  subscribeSoundPrefs,
+  writeAlertSoundKind,
+  writeAlertVolume,
+  type AlertSoundKind,
+} from '@/lib/market/sound';
 import type { AlertCondition, PriceAlert } from '@/lib/market/types';
 
 interface AlertsTabProps {
@@ -70,6 +91,21 @@ export function AlertsTab({
   const [condition, setCondition] = useState<AlertCondition>('ABOVE');
   const [target, setTarget] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Sound preferences (tone + volume) — live-read from localStorage via
+  // useSyncExternalStore (SSR-safe defaults; writes notify all subscribers).
+  const subscribeSound = useCallback((cb: () => void) => subscribeSoundPrefs(cb), []);
+  const soundKind = useSyncExternalStore(subscribeSound, readAlertSoundKind, () => 'ping' as AlertSoundKind);
+  const volume = useSyncExternalStore(subscribeSound, readAlertVolume, () => 70);
+
+  const pickSoundKind = (kind: AlertSoundKind) => {
+    writeAlertSoundKind(kind);
+    playAlertBeep(); // preview the newly selected tone
+  };
+
+  const changeVolume = (v: number) => {
+    writeAlertVolume(v);
+  };
 
   // Presets operate on the form's symbol, falling back to the terminal selection.
   const terminalSelected = useMarketStore((s) => s.selectedSymbol);
@@ -130,6 +166,79 @@ export function AlertsTab({
               )}
               {soundEnabled ? 'Sound on' : 'Sound off'}
             </button>
+          )}
+          {onToggleSound && soundEnabled && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  title="Sound preferences — tone & volume"
+                  aria-label="Sound preferences"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-orange-500/40 bg-orange-500/10 text-orange-400 transition-colors hover:bg-orange-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500"
+                >
+                  <SlidersHorizontal className="h-3 w-3" aria-hidden="true" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={6}
+                className="w-60 border-zinc-800 bg-zinc-950 text-zinc-100"
+              >
+                <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-zinc-500">
+                  Alert tone
+                </DropdownMenuLabel>
+                {ALERT_SOUND_KINDS.map((s) => (
+                  <DropdownMenuItem
+                    key={s.kind}
+                    onSelect={() => pickSoundKind(s.kind)}
+                    className="cursor-pointer gap-2 rounded-md px-2 py-1.5 text-xs data-[highlighted]:bg-zinc-800/80"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5 font-semibold">
+                        {s.label}
+                        {soundKind === s.kind && (
+                          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-orange-500" />
+                        )}
+                      </span>
+                      <span className="block truncate text-[10px] font-normal text-zinc-500">
+                        {s.hint}
+                      </span>
+                    </span>
+                    <Play
+                      className={`h-3 w-3 shrink-0 ${
+                        soundKind === s.kind ? 'text-orange-400' : 'text-zinc-600'
+                      }`}
+                      aria-hidden="true"
+                    />
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator className="bg-zinc-800" />
+                <div className="px-2 py-2" onWheel={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-zinc-500">
+                    <span>Volume</span>
+                    <span className="font-mono tabular-nums text-zinc-300">{volume}%</span>
+                  </div>
+                  <Slider
+                    value={[volume]}
+                    min={0}
+                    max={100}
+                    step={5}
+                    onValueChange={(vals) => changeVolume(vals[0] ?? volume)}
+                    onValueCommit={() => playAlertBeep()}
+                    aria-label="Alert sound volume"
+                    className="mt-2 [&_[data-slot=slider-range]]:bg-orange-500 [&_[data-slot=slider-thumb]]:border-orange-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => playAlertBeep()}
+                    className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 transition-colors hover:border-orange-500/40 hover:text-orange-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500"
+                  >
+                    <Play className="h-3 w-3" aria-hidden="true" />
+                    Preview
+                  </button>
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           {onToggleNotifications && (
             <button

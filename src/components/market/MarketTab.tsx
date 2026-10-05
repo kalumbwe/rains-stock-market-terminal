@@ -23,6 +23,7 @@ import { newsSentiment } from '@/lib/market/indicators';
 import { fmtBig, fmtIndex, fmtNum, fmtPct, fmtTimeSec } from '@/lib/market/format';
 import type { IndexPoint, Quote } from '@/lib/market/types';
 import { DividendCalendar, SectorPerformance } from './MarketExtras';
+import { CurrencyConverter } from './CurrencyConverter';
 
 const EMPTY_INDEX_HISTORY: IndexPoint[] = [];
 
@@ -214,6 +215,9 @@ export function MarketTab() {
           </div>
         </div>
       </section>
+
+      {/* Currency converter — live USD/ZMW */}
+      <CurrencyConverter />
 
       {/* Breadth */}
       <section aria-label="Market breadth" className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">

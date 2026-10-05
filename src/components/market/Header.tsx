@@ -163,9 +163,9 @@ export function Header({
     <header className="sticky top-0 z-40 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md">
       <div className="mx-auto flex w-full max-w-[1800px] items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-6">
         {/* Brand — official flag mark + name; never compressed on narrow screens */}
-        <div className="flex shrink-0 items-center gap-2.5">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-2.5">
           <span
-            className="relative flex h-9 w-9 shrink-0 items-center justify-center"
+            className="relative flex h-8 w-8 shrink-0 items-center justify-center min-[420px]:h-9 min-[420px]:w-9"
             title="Rains Stock Market — official logo"
           >
             <Image
@@ -174,11 +174,11 @@ export function Header({
               width={36}
               height={36}
               priority
-              className="h-9 w-9 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
+              className="h-8 w-8 object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)] min-[420px]:h-9 min-[420px]:w-9"
             />
           </span>
           <div className="leading-tight">
-            <h1 className="whitespace-nowrap text-sm font-bold tracking-wide text-zinc-100">
+            <h1 className="whitespace-nowrap text-[13px] font-bold tracking-wide text-zinc-100 sm:text-sm">
               Rains Stock Market
             </h1>
             <p className="hidden whitespace-nowrap text-[10px] uppercase tracking-widest text-zinc-500 xl:block">
@@ -254,7 +254,7 @@ export function Header({
               onClick={onOpenScreener}
               aria-label="Open market screener"
               title="Market screener — all counters, fundamentals & sorting"
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2 text-zinc-400 transition-colors hover:border-orange-500/40 hover:text-orange-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 sm:px-2.5"
+              className="hidden h-8 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2 text-zinc-400 transition-colors hover:border-orange-500/40 hover:text-orange-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 sm:flex sm:px-2.5"
             >
               <TableProperties className="h-3.5 w-3.5" aria-hidden="true" />
               <span className="hidden text-[10px] font-semibold uppercase tracking-wider xl:inline">
@@ -347,7 +347,7 @@ export function Header({
 
           {/* Connection */}
           <div
-            className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5"
+            className="hidden items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 min-[420px]:flex"
             role="status"
             aria-live="polite"
             aria-label={connected ? 'Live data connected' : 'Reconnecting to market engine'}

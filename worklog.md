@@ -365,3 +365,39 @@ Stage Summary:
 - Runbook unchanged: Next :3000 (auto), engine :3003 via setsid nohup, preview via Caddy :81. No engine changes this round.
 - Remaining ideas (priority): i18n (EN/Bemba/Nyanja/Lozi); NextAuth watchlist sync; sound volume/choice options; portfolio benchmark vs LASI; light-theme fine-tuning for any future hardcoded-rgba components.
 - Known minor: sandbox screenshots still render with warm color cast (display artifact only — computed styles verified); maskable icon uses flag at 64% (safe-zone compliant).
+
+---
+Task ID: 14 (cron webDevReview round 9)
+Agent: main coordinator (scheduled review)
+Task: Status assessment + QA, then feature round: Portfolio Insights (LASI benchmark/beta/dividends/concentration), USD/ZMW converter, alert-sound preferences (tone + volume), mobile header overflow fix.
+
+Work Log:
+- STATUS ASSESSMENT: engine :3003 healthy (ticking:true/persist:true, uptime>45min), Next :3000 200, gateway :81 200. Baseline agent-browser QA via :81: tabs Market/Portfolio/News/Alerts render, Alerts active+triggered lists correct, Screener (Table/Correlation/filters/CSV) OK, live title + ticks flowing, console clean → NO pre-existing bugs → feature round.
+- NEW FEATURE 1 — Portfolio Insights (new PortfolioInsights.tsx, embedded in PortfolioTab between Summary and Allocation):
+  - Fetches /api/screener once per session (beta + dividendYield per held symbol; inflight ref guard).
+  - Day alpha vs LASI: portfolio day % (Σ qty×Δ vs prev close) minus LASI day % → colored "+x.xx pts" read + ANIMATED paired bars (framer, staggered 0.08s, widths normalized to the larger |move|, min 0.5% scale) — "You" emerald/rose vs "LASI" orange.
+  - Book beta: value-weighted incl. cash (cash=0) with Defensive(<0.85)/Market-like(≤1.15)/Aggressive read; tooltip states the cash-inclusive definition.
+  - Est. dividends/yr: Σ value×yield → annual K, effective book yield %, ~quarterly payout.
+  - Concentration: HHI (incl. cash weight) → Well diversified(<0.15)/Moderately spread(<0.3)/Concentrated(<0.5)/Very concentrated + "top holding x% of book".
+  - VERIFIED LIVE: card shows -1.80 pts alpha (You −1.71% vs LASI +0.08% bars), beta 0.20 Defensive (77% cash book — expected), K954.07/yr (0.95% yield, ~K238/qtr), Well diversified/top 14%. Empty state if no positions.
+- NEW FEATURE 2 — USD/ZMW converter (new CurrencyConverter.tsx, in MarketTab after Session Stats):
+  - Single source of truth (amount + side) → opposite side DERIVED on render: no sync effects, no empty-init bug (first attempt had useState pair + onChange-only sync → ZMW box started blank; caught in QA and refactored).
+  - Two linked inputs (USD$ / ZMW K) with focus-within orange rings + active-side ring emphasis, swap glyph, quick chips $1/$10/$100/$1,000 (aria-pressed active state), header live rate + Sparkline from store usdHistory, "updated HH:mm CAT" footer from last quote update.
+  - VERIFIED: 10 USD → 234.9 ZMW auto on load; typed ZMW 500 → $21.29; chip $100 → 2,350; works in Daylight.
+- NEW FEATURE 3 — Alert sound preferences (sound.ts + AlertsTab):
+  - sound.ts generalized: 3 tones (Ping two-tone / Chime C6-E6-G6 triad / Bell struck D5 + inharmonic partials), volume pref (0-100, perceptual master gain 0.22×v^1.4), localStorage keys luse_alert_sound_kind + luse_alert_volume, module pub/sub (subscribeSoundPrefs) so all consumers stay in sync.
+  - AlertsTab: chip still toggles sound on/off; when ON a ⚙-ish SlidersHorizontal button opens a DropdownMenu — tone list (active orange dot + Play icon, click previews via playAlertBeep inside user gesture), Volume slider (Radix Slider, orange range/thumb via [data-slot] selectors, onValueCommit previews), PREVIEW button. State via useSyncExternalStore (SSR-safe defaults) — avoids the react-hooks/set-state-in-effect lint rule (first draft used setState-in-effect; refactored).
+  - 🐛 FIXED: readAlertVolume returned 0 when key absent — Number(null)===0 passed the isFinite guard. Now null-checked → defaults 70. Caught in QA (slider showed 0%).
+  - VERIFIED: enabled sound → picker appears; picked Bell → localStorage kind=bell + preview beep; slider center-click → volume 50 persisted + aria-valuenow=50; menu closes after tone pick (Radix default).
+- RESPONSIVE BUG FOUND & FIXED (Header, regression from Task-13 rebrand): "Rains Stock Market" (~79px wider than "LuSE Pulse") overflowed the <sm header by 34px at 390px (measured: right cluster right=424 > 390). Fix: brand gap-2 sm:gap-2.5, flag 32px→36px at min-[420px], h1 text-[13px] sm:text-sm, Screener button hidden <sm (⌘K palette covers it), connection chip hidden <420px. VERIFIED: overflow 0 at 360px AND 390px; brand + clock still visible; light theme clean.
+  - ⚠️ OPS: during this fix one tool result echoed back mangled/garbled Header.tsx "edits" (display artifact — the documented sandbox pattern). Ground truth check: git diff showed the applied changes are EXACTLY the overflow fix, byte-level hex check confirmed brand = "Rains" (5261696e73) and src = "/logo-zambia-flag.png" — no corruption. Rule stands: tsc+lint+git diff are the only truth; mangled echoes are display-only.
+- STYLING DETAILS: insights tiles with group-hover icon tinting (Sigma→orange, Coins→amber, ShieldHalf→emerald) + ring-800→700 hover lifts; alpha bars easeOut width animation; converter focus-within rings + chip active states; sound menu orange slider + tone dots; all new components use zinc-var tokens → auto-adapt to Daylight (verified) / OLED scopes.
+- Verification: bunx tsc --noEmit 0 src errors; bun run lint clean; agent-browser E2E via :81: all three features exercised live, clean-reload console 0 errors, mobile 360/390 overflow 0, dark↔light both verified, engine healthy throughout.
+
+Stage Summary:
+- Portfolio tab now answers "how am I doing vs the market" (day alpha bars vs LASI), "how risky is my book" (beta + concentration HHI) and "what does it pay me" (dividend projection) — all from live ticks + seeded fundamentals.
+- Market tab gained a live two-way USD/ZMW converter; Alerts gained a real sound studio (3 tones + volume with previews).
+- New files: src/components/market/{PortfolioInsights,CurrencyConverter}.tsx. Modified: PortfolioTab.tsx, MarketTab.tsx, AlertsTab.tsx, Header.tsx (responsive), src/lib/market/sound.ts.
+- Runbook unchanged: Next :3000 (auto), engine :3003 via setsid nohup, preview via Caddy :81 (socket.io XTransformPort). Radix tabs need agent-browser click @ref; Radix menus close on item select.
+- Remaining ideas (priority): i18n (EN/Bemba/Nyanja/Lozi — needs translation research); NextAuth watchlist sync; portfolio value history chart (needs position-snapshot persistence); index row sparkline in screener; OLED fine-tuning for new components (current ones verified dark+light only).
+- Known minor: day alpha is intraday-only (vs prev close) — no multi-session alpha without portfolio history persistence; mover toast threshold still fixed ±3%; sound previews need a user gesture first (autoplay policy — documented in sound.ts).

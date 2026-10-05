@@ -33,6 +33,7 @@ import {
   fmtSignedMoney,
 } from '@/lib/market/format';
 import type { PortfolioResponse } from '@/lib/market/types';
+import { PortfolioInsights } from './PortfolioInsights';
 
 interface PortfolioTabProps {
   portfolio: PortfolioResponse | null;
@@ -279,6 +280,15 @@ export function PortfolioTab({ portfolio, loading, onSell, onReset }: PortfolioT
           </>
         )}
       </section>
+
+      {/* Insights — benchmark alpha vs LASI, beta, dividend projection, concentration */}
+      {!loading && cash !== null && (
+        <PortfolioInsights
+          positions={positions}
+          cash={cash}
+          totalValue={totalValue}
+        />
+      )}
 
       {/* Analytics — allocation donut + trading stats */}
       {!loading && cash !== null && (
