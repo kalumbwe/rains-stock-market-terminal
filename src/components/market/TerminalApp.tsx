@@ -41,17 +41,15 @@ import { NewsTab } from './NewsTab';
 import { ScreenerDialog } from './ScreenerDialog';
 import { CompareDialog } from './CompareDialog';
 import { ShortcutsDialog } from './ShortcutsDialog';
+import { CommandPalette, paletteTabIcon, type PaletteTab } from './CommandPalette';
 import { TradeDialog, type TradeSide } from './TradeDialog';
 import { Footer } from './Footer';
 
 type MobileTab = 'market' | 'terminal' | 'portfolio' | 'news' | 'alerts';
 
 export function TerminalApp() {
-  // Dark terminal theme (shadcn vars) — applied on <html> so portals inherit it.
-  useEffect(() => {
-    document.documentElement.classList.add('dark');
-    return () => document.documentElement.classList.remove('dark');
-  }, []);
+  // Theme (dark terminal skin / Daylight remap) is managed by next-themes
+  // via the root ThemeProvider — see src/components/theme-provider.tsx.
 
   useMarketSocket();
   const bootstrap = useMarketBootstrap();
@@ -84,6 +82,9 @@ export function TerminalApp() {
   // Keyboard-shortcuts help dialog
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
+  // Command palette (⌘K)
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
   // Compare dialog
   const [compareOpen, setCompareOpen] = useState(false);
 
@@ -91,11 +92,12 @@ export function TerminalApp() {
     setTrade({ open: true, symbol, side });
   }, []);
 
-  // Global keyboard shortcuts: / search · ↑↓ navigate · B buy · S sell · P screener · C compare · ? help.
+  // Global keyboard shortcuts: / search · ↑↓ navigate · B buy · S sell · P screener · C compare · ? help · ⌘K palette.
   const openScreener = useCallback(() => setScreenerOpen(true), []);
   const openCompare = useCallback(() => setCompareOpen(true), []);
   const openShortcuts = useCallback(() => setShortcutsOpen((v) => !v), []);
-  useKeyboardShortcuts(openTrade, openScreener, openCompare, openShortcuts);
+  const togglePalette = useCallback(() => setPaletteOpen((v) => !v), []);
+  useKeyboardShortcuts(openTrade, openScreener, openCompare, openShortcuts, togglePalette);
 
   const toggleNotifications = useCallback(() => {
     if (alerts.notifyEnabled) alerts.disableNotifications();
@@ -123,8 +125,12 @@ export function TerminalApp() {
   );
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#0a0a0b] text-zinc-100">
-      <Header onOpenScreener={() => setScreenerOpen(true)} onOpenCompare={() => setCompareOpen(true)} />
+    <div className="flex min-h-screen flex-col bg-[var(--luse-app-bg)] text-zinc-100">
+      <Header
+        onOpenScreener={() => setScreenerOpen(true)}
+        onOpenCompare={() => setCompareOpen(true)}
+        onOpenPalette={togglePalette}
+      />
       <TickerTape />
 
       {/* Engine-down banner */}
@@ -261,6 +267,32 @@ export function TerminalApp() {
       <ScreenerDialog open={screenerOpen} onOpenChange={setScreenerOpen} />
       <CompareDialog open={compareOpen} onOpenChange={setCompareOpen} />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        onTrade={openTrade}
+        onOpenScreener={openScreener}
+        onOpenCompare={openCompare}
+        onOpenShortcuts={openShortcuts}
+        tabs={
+          isMobile
+            ? (
+                [
+                  { value: 'market', label: 'Market' },
+                  { value: 'terminal', label: 'Terminal' },
+                  { value: 'portfolio', label: 'Portfolio' },
+                  { value: 'news', label: 'News' },
+                  { value: 'alerts', label: 'Alerts' },
+                ] as { value: PaletteTab; label: string }[]
+              ).map((t) => ({ ...t, icon: paletteTabIcon(t.value) }))
+            : undefined
+        }
+        onNavigateTab={(tab) => setMobileTab(tab)}
+        notifyEnabled={alerts.notifyEnabled}
+        soundEnabled={alerts.soundEnabled}
+        onToggleNotifications={toggleNotifications}
+        onToggleSound={toggleSound}
+      />
     </div>
   );
 }

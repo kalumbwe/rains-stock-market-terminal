@@ -20,9 +20,18 @@ import type {
 
 export type FlashDir = 'up' | 'down';
 
+/** One synthesized trade print (Time & Sales), derived from tick deltas. */
+export interface TradePrint {
+  t: number; // epoch ms
+  price: number;
+  size: number; // shares traded since the previous tick
+  side: 'buy' | 'sell';
+}
+
 const PRICE_BUFFER_SIZE = 50; // ring buffer of last tick prices per symbol
 const USD_BUFFER_SIZE = 60; // ring buffer of USD/ZMW samples
 const INDEX_HISTORY_CAP = 720; // ~30min of ticks at 1.5s
+const TRADES_CAP = 40; // trade prints kept per symbol
 const FLASH_MS = 600;
 
 export interface MarketStore {
@@ -42,6 +51,8 @@ export interface MarketStore {
   priceHistory: Record<string, number[]>;
   /** Ring buffer (cap 60) of USD/ZMW rate samples — header sparkline. */
   usdHistory: number[];
+  /** Latest trade prints per symbol (Time & Sales), newest first. */
+  trades: Record<string, TradePrint[]>;
 
   setConnected: (connected: boolean) => void;
   setSelected: (symbol: string) => void;
@@ -84,6 +95,12 @@ function appendIndexHistory(history: IndexPoint[] | undefined, value: number): I
   return next;
 }
 
+function prependTrade(buf: TradePrint[] | undefined, print: TradePrint): TradePrint[] {
+  const next = [print, ...(buf ?? [])];
+  if (next.length > TRADES_CAP) next.splice(TRADES_CAP);
+  return next;
+}
+
 export const useMarketStore = create<MarketStore>((set, get) => ({
   connected: false,
   session: null,
@@ -96,6 +113,7 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
   flash: {},
   priceHistory: {},
   usdHistory: [],
+  trades: {},
 
   setConnected: (connected) => set({ connected }),
 
@@ -143,6 +161,7 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
       const stocks = { ...state.stocks };
       const flash = { ...state.flash };
       const priceHistory = { ...state.priceHistory };
+      const trades = { ...state.trades };
 
       for (const tq of tick.stocks) {
         const prev = stocks[tq.symbol];
@@ -187,6 +206,27 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
           scheduleFlashClear(tq.symbol);
         }
         priceHistory[tq.symbol] = pushPrice(priceHistory[tq.symbol], tq.price);
+
+        // Time & Sales print: engine reports cumulative volume, so a positive
+        // delta is shares traded this tick. Side from the tick direction
+        // (fall back to price movement vs the previous quote).
+        const volDelta = prev ? tq.volume - prev.volume : 0;
+        if (volDelta > 0) {
+          const side: TradePrint['side'] =
+            tq.dir === -1
+              ? 'sell'
+              : tq.dir === 1
+                ? 'buy'
+                : prev && tq.price < prev.price
+                  ? 'sell'
+                  : 'buy';
+          trades[tq.symbol] = prependTrade(trades[tq.symbol], {
+            t: Date.now(),
+            price: tq.price,
+            size: volDelta,
+            side,
+          });
+        }
       }
 
       return {
@@ -202,6 +242,7 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
         stocks,
         flash,
         priceHistory,
+        trades,
       };
     });
   },

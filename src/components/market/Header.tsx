@@ -6,12 +6,13 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Activity, DollarSign, GitCompareArrows, RadioTower, TableProperties } from 'lucide-react';
+import { Activity, DollarSign, GitCompareArrows, RadioTower, Search, TableProperties } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMarketStore } from '@/lib/market/store';
 import { fmtIndex, fmtPct } from '@/lib/market/format';
 import { Sparkline } from './Sparkline';
+import { ThemeToggle } from './ThemeToggle';
 
 function changeColor(v: number): string {
   if (v > 0) return 'text-emerald-400';
@@ -83,9 +84,11 @@ function computeSessionProgress(): SessionProgress {
 export function Header({
   onOpenScreener,
   onOpenCompare,
+  onOpenPalette,
 }: {
   onOpenScreener?: () => void;
   onOpenCompare?: () => void;
+  onOpenPalette?: () => void;
 }) {
   const connected = useMarketStore((s) => s.connected);
   const session = useMarketStore((s) => s.session);
@@ -94,7 +97,7 @@ export function Header({
   const usdHistory = useMarketStore((s) => s.usdHistory);
 
   // Lusaka clock + session countdown — client-only to avoid hydration mismatch.
-  const [clock, setClock] = useState<{ short: string; long: string } | null>(null);
+  const [clock, setClock] = useState<{ short: string; long: string; mini: string } | null>(null);
   const [progress, setProgress] = useState<SessionProgress | null>(null);
   useEffect(() => {
     const fmtLong = new Intl.DateTimeFormat('en-GB', {
@@ -111,7 +114,12 @@ export function Header({
       hour12: false,
     });
     const update = () => {
-      setClock({ short: `${fmtShort.format(new Date())} CAT`, long: `${fmtLong.format(new Date())} CAT` });
+      const now = new Date();
+      setClock({
+        short: `${fmtShort.format(now)} CAT`,
+        long: `${fmtLong.format(now)} CAT`,
+        mini: fmtShort.format(now),
+      });
       setProgress(computeSessionProgress());
     };
     update();
@@ -211,7 +219,26 @@ export function Header({
           )}
         </div>
 
-        <div className="ml-auto flex items-center gap-1.5 sm:gap-3">
+        <div className="ml-auto flex items-center gap-1 sm:gap-3">
+          {/* Command palette trigger (⌘K) */}
+          {onOpenPalette ? (
+            <button
+              type="button"
+              onClick={onOpenPalette}
+              aria-label="Open command palette"
+              title="Command palette — jump to counters & actions (⌘K)"
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-1.5 text-zinc-400 transition-colors hover:border-orange-500/40 hover:text-orange-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 sm:px-2.5"
+            >
+              <Search className="h-3.5 w-3.5" aria-hidden="true" />
+              <kbd className="hidden rounded border border-zinc-700 bg-zinc-800 px-1 font-mono text-[10px] text-zinc-400 lg:inline">
+                ⌘K
+              </kbd>
+            </button>
+          ) : null}
+
+          {/* Theme toggle (dark terminal / Daylight) */}
+          <ThemeToggle />
+
           {/* Screener trigger */}
           {onOpenScreener ? (
             <button
@@ -222,7 +249,7 @@ export function Header({
               className="flex h-8 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2 text-zinc-400 transition-colors hover:border-orange-500/40 hover:text-orange-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 sm:px-2.5"
             >
               <TableProperties className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="hidden text-[10px] font-semibold uppercase tracking-wider lg:inline">
+              <span className="hidden text-[10px] font-semibold uppercase tracking-wider xl:inline">
                 Screener
               </span>
             </button>
@@ -235,10 +262,10 @@ export function Header({
               onClick={onOpenCompare}
               aria-label="Compare counters"
               title="Compare counters — normalized performance, up to 4 symbols"
-              className="flex h-8 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2 text-zinc-400 transition-colors hover:border-orange-500/40 hover:text-orange-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 sm:px-2.5"
+              className="hidden h-8 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2 text-zinc-400 transition-colors hover:border-orange-500/40 hover:text-orange-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 sm:flex sm:px-2.5"
             >
               <GitCompareArrows className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="hidden text-[10px] font-semibold uppercase tracking-wider lg:inline">
+              <span className="hidden text-[10px] font-semibold uppercase tracking-wider xl:inline">
                 Compare
               </span>
             </button>
@@ -246,7 +273,7 @@ export function Header({
 
           {/* USD/ZMW + trend sparkline */}
           <div
-            className="hidden items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 lg:flex"
+            className="hidden items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 xl:flex"
             aria-label="USD to ZMW rate"
           >
             <DollarSign className="h-3.5 w-3.5 text-zinc-500" aria-hidden="true" />
@@ -274,8 +301,8 @@ export function Header({
               <span className="truncate font-mono text-[11px] tabular-nums text-zinc-200 sm:text-sm">
                 {clock ? (
                   <>
-                    {/* Compact HH:mm on phones, full HH:mm:ss from sm up */}
-                    <span className="sm:hidden">{clock.short}</span>
+                    {/* Bare HH:mm on phones, full HH:mm:ss CAT from sm up */}
+                    <span className="sm:hidden">{clock.mini}</span>
                     <span className="hidden sm:inline">{clock.long}</span>
                   </>
                 ) : (
@@ -297,7 +324,7 @@ export function Header({
             </div>
             {session ? (
               <Badge
-                className={`hidden h-5 border px-1.5 text-[10px] font-bold tracking-wider lg:inline-flex ${
+                className={`hidden h-5 border px-1.5 text-[10px] font-bold tracking-wider xl:inline-flex ${
                   isOpen
                     ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-400'
                     : 'border-zinc-700 bg-zinc-800 text-zinc-400'
@@ -322,7 +349,7 @@ export function Header({
               aria-hidden="true"
             />
             <span
-              className={`hidden text-[10px] font-semibold uppercase tracking-wider sm:inline ${
+              className={`hidden text-[10px] font-semibold uppercase tracking-wider xl:inline ${
                 connected ? 'text-emerald-400' : 'text-amber-500'
               }`}
             >

@@ -14,6 +14,7 @@ import {
   Download,
   Inbox,
   Loader2,
+  Star,
   TableProperties,
   X,
 } from 'lucide-react';
@@ -180,6 +181,8 @@ export function ScreenerDialog({
   const [sector, setSector] = useState<string>('All');
   const [sortKey, setSortKey] = useState<SortKey>('marketCap');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  // Watchlist symbols — starred rows so users spot their counters instantly.
+  const [watchlist, setWatchlist] = useState<Set<string>>(() => new Set());
 
   const load = async (force = false) => {
     setLoading(true);
@@ -198,6 +201,21 @@ export function ScreenerDialog({
 
   useEffect(() => {
     if (open && rows === null && !loading) void load();
+  }, [open]);
+
+  // Refresh the watchlist star set whenever the dialog opens.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetch('/api/watchlist')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('watchlist'))))
+      .then((data: { items?: { symbol: string }[] }) => {
+        if (!cancelled) setWatchlist(new Set((data.items ?? []).map((i) => i.symbol)));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   const sectors = useMemo(() => {
@@ -433,7 +451,16 @@ export function ScreenerDialog({
                     >
                       <td className="px-3 py-2">
                         <div className="flex flex-col">
-                          <span className="font-mono font-bold tracking-wide text-zinc-100">{r.symbol}</span>
+                          <span className="flex items-center gap-1.5 font-mono font-bold tracking-wide text-zinc-100">
+                            {watchlist.has(r.symbol) && (
+                              <Star
+                                className="h-3 w-3 shrink-0 fill-orange-400 text-orange-400"
+                                aria-hidden="true"
+                              />
+                            )}
+                            {r.symbol}
+                            {watchlist.has(r.symbol) && <span className="sr-only">(in watchlist)</span>}
+                          </span>
                           <span className="max-w-44 truncate text-[10px] text-zinc-500 xl:hidden">{r.name}</span>
                           <span className="hidden text-[10px] text-zinc-500 xl:block">{r.name}</span>
                         </div>

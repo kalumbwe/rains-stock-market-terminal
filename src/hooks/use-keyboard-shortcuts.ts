@@ -2,6 +2,7 @@
 
 /**
  * Global keyboard shortcuts for the trading terminal:
+ *   ⌘K / Ctrl+K  command palette
  *   /            focus stock search
  *   ↑ / ↓ (j/k)  move selection through the stock list
  *   B / S        open the trade dialog (buy / sell) for the selected symbol
@@ -19,10 +20,17 @@ export function useKeyboardShortcuts(
   onTrade: (symbol: string, side: 'BUY' | 'SELL') => void,
   onScreener?: () => void,
   onCompare?: () => void,
-  onShortcutsHelp?: () => void
+  onShortcutsHelp?: () => void,
+  onPalette?: () => void
 ) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // ⌘K / Ctrl+K — command palette (checked before the modifier bail-out).
+      if (onPalette && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        onPalette();
+        return;
+      }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -68,5 +76,5 @@ export function useKeyboardShortcuts(
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onTrade, onScreener, onCompare, onShortcutsHelp]);
+  }, [onTrade, onScreener, onCompare, onShortcutsHelp, onPalette]);
 }

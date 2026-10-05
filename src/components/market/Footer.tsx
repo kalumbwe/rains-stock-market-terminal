@@ -15,6 +15,8 @@ export function Footer({ onOpenShortcuts }: { onOpenShortcuts?: () => void }) {
       aria-label="Keyboard shortcuts — click for help"
     >
       <Keyboard className="h-3 w-3" aria-hidden="true" />
+      <kbd className="rounded border border-zinc-800 bg-zinc-900 px-1 font-mono text-[10px] text-zinc-400">⌘K</kbd>
+      palette
       <kbd className="rounded border border-zinc-800 bg-zinc-900 px-1 font-mono text-[10px] text-zinc-400">/</kbd>
       search
       <kbd className="rounded border border-zinc-800 bg-zinc-900 px-1 font-mono text-[10px] text-zinc-400">↑↓</kbd>

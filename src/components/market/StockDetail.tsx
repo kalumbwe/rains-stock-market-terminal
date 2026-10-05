@@ -15,6 +15,7 @@ import { PriceChart } from './PriceChart';
 import { StatsGrid } from './StatsGrid';
 import { TechnicalsCard } from './TechnicalsCard';
 import { OrderBook } from './OrderBook';
+import { TimeSales } from './TimeSales';
 import { SymbolNews } from './SymbolNews';
 import { useMarketStore } from '@/lib/market/store';
 import { fmtK, fmtPct, fmtSignedK } from '@/lib/market/format';
@@ -242,6 +243,8 @@ export function StockDetail({ symbol, onTrade }: StockDetailProps) {
       <TechnicalsCard symbol={symbol} />
 
       <OrderBook symbol={symbol} />
+
+      <TimeSales symbol={symbol} />
 
       <SymbolNews symbol={symbol} />
     </div>

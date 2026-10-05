@@ -46,7 +46,10 @@ const GROUPS: { title: string; items: ShortcutEntry[] }[] = [
   },
   {
     title: 'General',
-    items: [{ keys: ['?'], label: 'Toggle this help' }],
+    items: [
+      { keys: ['⌘', 'K'], label: 'Command palette (Ctrl+K on Win/Linux)' },
+      { keys: ['?'], label: 'Toggle this help' },
+    ],
   },
 ];
 

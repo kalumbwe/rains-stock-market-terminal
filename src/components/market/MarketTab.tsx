@@ -9,11 +9,18 @@
 import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Area, AreaChart, ResponsiveContainer, YAxis } from 'recharts';
-import { Flame, Newspaper, TrendingDown, TrendingUp } from 'lucide-react';
+import {
+  Area,
+  AreaChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  YAxis,
+} from 'recharts';
+import { Flame, Gauge, Newspaper, TrendingDown, TrendingUp } from 'lucide-react';
 import { useMarketStore } from '@/lib/market/store';
 import { newsSentiment } from '@/lib/market/indicators';
-import { fmtBig, fmtIndex, fmtNum, fmtPct } from '@/lib/market/format';
+import { fmtBig, fmtIndex, fmtNum, fmtPct, fmtTimeSec } from '@/lib/market/format';
 import type { IndexPoint, Quote } from '@/lib/market/types';
 import { DividendCalendar, SectorPerformance } from './MarketExtras';
 
@@ -83,6 +90,23 @@ export function MarketTab() {
   );
   const idxUp = index ? index.value >= index.prevClose : true;
 
+  // Session aggregates: market turnover/volume + LASI high/low/open time.
+  const sessionStats = useMemo(() => {
+    let turnover = 0;
+    let volume = 0;
+    for (const q of quotes) {
+      turnover += q.valueTraded;
+      volume += q.volume;
+    }
+    let high: number | null = index ? index.value : null;
+    let low: number | null = index ? index.value : null;
+    for (const p of indexHistory) {
+      if (high === null || p.v > high) high = p.v;
+      if (low === null || p.v < low) low = p.v;
+    }
+    return { turnover, volume, high, low };
+  }, [quotes, indexHistory, index]);
+
   return (
     <div className="space-y-4">
       {/* LASI mini chart */}
@@ -111,6 +135,14 @@ export function MarketTab() {
                   </linearGradient>
                 </defs>
                 <YAxis hide domain={['dataMin', 'dataMax']} />
+                {/* Previous close anchor — dashed so the day's drift reads at a glance. */}
+                <ReferenceLine
+                  y={index?.prevClose}
+                  stroke="#a1a1aa"
+                  strokeDasharray="4 4"
+                  strokeOpacity={0.6}
+                  ifOverflow="extendDomain"
+                />
                 <Area
                   type="monotone"
                   dataKey="v"
@@ -119,6 +151,24 @@ export function MarketTab() {
                   fill="url(#lasiFill)"
                   isAnimationActive={false}
                 />
+                <Tooltip
+                  cursor={{ stroke: '#f97316', strokeOpacity: 0.35, strokeWidth: 1 }}
+                  content={({ active, payload }) => {
+                    if (!active || !payload || payload.length === 0) return null;
+                    const p = payload[0].payload as { t: number; v: number };
+                    const drift = index ? ((p.v - index.prevClose) / index.prevClose) * 100 : 0;
+                    return (
+                      <div className="rounded-md border border-zinc-700 bg-zinc-950/95 px-2.5 py-1.5 font-mono text-[10px] tabular-nums shadow-lg">
+                        <p className="font-semibold text-zinc-100">{fmtIndex(p.v)}</p>
+                        <p className={drift >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                          {drift >= 0 ? '+' : ''}
+                          {drift.toFixed(2)}% vs prev close
+                        </p>
+                        <p className="text-zinc-500">{fmtTimeSec(p.t)}</p>
+                      </div>
+                    );
+                  }}
+                />
               </AreaChart>
             </ResponsiveContainer>
           ) : (
@@ -126,6 +176,42 @@ export function MarketTab() {
               Waiting for intraday index ticks…
             </div>
           )}
+        </div>
+      </section>
+
+      {/* Session aggregates */}
+      <section aria-label="Session statistics" className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+        <div className="mb-2 flex items-center gap-1.5">
+          <Gauge className="h-3.5 w-3.5 text-orange-500" aria-hidden="true" />
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+            Session Stats
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg bg-zinc-950/60 px-2.5 py-2 ring-1 ring-zinc-800/70">
+            <p className="text-[9px] uppercase tracking-wider text-zinc-500">Market turnover</p>
+            <p className="font-mono text-sm font-bold tabular-nums text-zinc-100">
+              K{fmtBig(sessionStats.turnover)}
+            </p>
+          </div>
+          <div className="rounded-lg bg-zinc-950/60 px-2.5 py-2 ring-1 ring-zinc-800/70">
+            <p className="text-[9px] uppercase tracking-wider text-zinc-500">Shares traded</p>
+            <p className="font-mono text-sm font-bold tabular-nums text-zinc-100">
+              {fmtNum(sessionStats.volume)}
+            </p>
+          </div>
+          <div className="rounded-lg bg-zinc-950/60 px-2.5 py-2 ring-1 ring-zinc-800/70">
+            <p className="text-[9px] uppercase tracking-wider text-zinc-500">LASI high</p>
+            <p className="font-mono text-sm font-bold tabular-nums text-emerald-400">
+              {sessionStats.high !== null ? fmtIndex(sessionStats.high) : '—'}
+            </p>
+          </div>
+          <div className="rounded-lg bg-zinc-950/60 px-2.5 py-2 ring-1 ring-zinc-800/70">
+            <p className="text-[9px] uppercase tracking-wider text-zinc-500">LASI low</p>
+            <p className="font-mono text-sm font-bold tabular-nums text-rose-400">
+              {sessionStats.low !== null ? fmtIndex(sessionStats.low) : '—'}
+            </p>
+          </div>
         </div>
       </section>
 
