@@ -401,3 +401,22 @@ Stage Summary:
 - Runbook unchanged: Next :3000 (auto), engine :3003 via setsid nohup, preview via Caddy :81 (socket.io XTransformPort). Radix tabs need agent-browser click @ref; Radix menus close on item select.
 - Remaining ideas (priority): i18n (EN/Bemba/Nyanja/Lozi — needs translation research); NextAuth watchlist sync; portfolio value history chart (needs position-snapshot persistence); index row sparkline in screener; OLED fine-tuning for new components (current ones verified dark+light only).
 - Known minor: day alpha is intraday-only (vs prev close) — no multi-session alpha without portfolio history persistence; mover toast threshold still fixed ±3%; sound previews need a user gesture first (autoplay policy — documented in sound.ts).
+
+---
+Task ID: 14
+Agent: Z.ai Code (main)
+Task: Commit and push all project files to GitHub repo kalumbwe/rains-stock-market-terminal
+
+Work Log:
+- Audited tracked files (181 files: src/, public/, mini-services/, prisma/, worklog.md, configs); verified .env contains only local SQLite path (no secrets)
+- Committed pending db/custom.db change ("Update market database state (Rains Stock Market)")
+- Added remote origin -> https://github.com/kalumbwe/rains-stock-market-terminal.git; verified repo reachable and empty
+- Pushed main using user-supplied PAT via one-shot credential helper (nothing persisted to disk/config)
+- Verified origin/main = local HEAD (5fc25e8), upstream tracking main...origin/main established
+- Note: live market engine continuously writes db/custom.db, so it appears modified right after commits (expected churn)
+
+Stage Summary:
+- Rains Stock Market is now published on GitHub: https://github.com/kalumbwe/rains-stock-market-terminal (main branch)
+- Push method: one-shot credential helper; token NOT stored in .git/config or any credential store
+- Future rounds can push with: git push origin main (will need credentials again after token rotation)
+- SECURITY: user should revoke/rotate the PAT since it was shared in chat
