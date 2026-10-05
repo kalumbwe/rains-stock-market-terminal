@@ -1,0 +1,102 @@
+// Zambia LuSE Market Terminal — Prisma schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Master list of LuSE listed companies (seeded from shared/luse-stocks.json)
+model Stock {
+  id                String       @id @default(cuid())
+  symbol            String       @unique
+  name              String
+  sector            String
+  description       String       @default("")
+  sharesOutstanding Float
+  peRatio           Float        @default(0)
+  dividendYield     Float        @default(0)
+  eps               Float        @default(0)
+  beta              Float        @default(1)
+  website           String       @default("")
+  anchorPrice       Float // price used at seed time
+  createdAt         DateTime     @default(now())
+  dailyPrices       DailyPrice[]
+}
+
+// Historical daily OHLCV bars (seeded ~1 year back)
+model DailyPrice {
+  id     String   @id @default(cuid())
+  symbol String
+  date   DateTime
+  open   Float
+  high   Float
+  low    Float
+  close  Float
+  volume Float
+  stock  Stock?   @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
+  @@unique([symbol, date])
+  @@index([symbol, date])
+}
+
+// Seeded market news (engine generates live news in memory)
+model NewsItem {
+  id          String   @id @default(cuid())
+  headline    String
+  body        String
+  source      String   @default("LuSE Wire")
+  symbols     String   @default("") // comma-separated related symbols
+  sentiment   String   @default("NEUTRAL") // POSITIVE | NEGATIVE | NEUTRAL
+  impact      String   @default("MEDIUM") // HIGH | MEDIUM | LOW
+  publishedAt DateTime @default(now())
+  @@index([publishedAt])
+}
+
+model WatchlistItem {
+  id        String   @id @default(cuid())
+  symbol    String   @unique
+  createdAt DateTime @default(now())
+}
+
+model Alert {
+  id          String    @id @default(cuid())
+  symbol      String
+  condition   String // ABOVE | BELOW
+  targetPrice Float
+  active      Boolean   @default(true)
+  triggeredAt DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+// Paper-trading portfolio (single account)
+model Position {
+  id         String   @id @default(cuid())
+  symbol     String   @unique
+  quantity   Float
+  avgCost    Float
+  realizedPnL Float   @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model CashAccount {
+  id             String @id @default("MAIN")
+  balance        Float
+  initialBalance Float  @default(100000)
+}
+
+model Trade {
+  id         String   @id @default(cuid())
+  symbol     String
+  side       String // BUY | SELL
+  quantity   Float
+  price      Float
+  grossValue Float
+  fees       Float
+  netValue   Float
+  createdAt  DateTime @default(now())
+  @@index([createdAt])
+}
